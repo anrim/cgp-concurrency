@@ -68,6 +68,46 @@ async fn read_on_worker(runtime: &impl CanSpawnTask, gate: impl Future<Output = 
 }
 ```
 
+## Cancellation and failure
+
+Use `try_spawn_task` or `try_spawn_local_task` when the task needs to observe a request.
+Pass a token to admission and a clone to the future. The owner can request cancellation,
+abort pending work, and drain the task.
+
+```rust
+use cgp_concurrency::prelude::*;
+
+async fn stop_worker(runtime: &impl CanSpawnTask) -> Result<TaskOutcome<()>, SpawnError> {
+    let token = CancellationToken::new();
+    let worker = token.clone();
+    let mut owner = runtime.try_spawn_task(&token, async move {
+        let cancelled = worker.cancelled().await;
+        // Finish asynchronous cleanup here before acknowledging the request.
+        Err::<(), _>(cancelled)
+    })?;
+    owner.request_cancel();
+    Ok(owner.drain().await)
+}
+```
+
+A token cancelled before admission yields `Err(SpawnError::Cancelled)`. After admission, returning
+`Ok(value)` yields `Completed(value)`, including when the application value is itself an error.
+Returning `Err(Cancelled)` acknowledges the request. Work may ignore a request and finish normally.
+
+Call `owner.abort()` to stop pending work at a poll boundary, then `owner.drain().await` to wait
+for destruction. Aborting after completion preserves the published outcome. Dropping a pending
+drain leaves the owner available for another wait. Dropping the owner requests native cancellation.
+
+An unwinding task panic yields `Panicked(message)`, with text for string payloads. Executor
+shutdown that discards an accepted task yields `RuntimeFailure`. Tokio and Smol both return
+native handles on submission, so shutdown can surface when the owner drains.
+
+A polling panic takes precedence over a later panic while destroying the submitted future.
+If the future returned a value and its destructor panics, drain reports the cleanup panic.
+
+With unwinding enabled, both adapters contain destructor panics while discarding refused work or
+an unclaimed result. Once `drain()` returns `Completed(value)`, the caller owns the value and its
+destructor runs normally.
+
 The [shared acceptance tests](../../tests/cgp-concurrency-tests/tests/task_ownership) exercise
-both operations on Tokio and Smol. See the [release checklist](../../../TASKS.md) for explicit
-cancellation and failure reporting.
+these outcomes on both local and multithreaded executors.

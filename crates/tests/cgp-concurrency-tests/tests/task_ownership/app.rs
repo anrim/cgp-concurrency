@@ -1,6 +1,7 @@
 use core::future::Future;
 
 use cgp::component::UseFields;
+use cgp::error::ErrorTypeProviderComponent;
 use cgp::prelude::*;
 use cgp_concurrency::prelude::*;
 
@@ -26,6 +27,18 @@ where
     {
         self.runtime().spawn_local_task(future)
     }
+
+    fn try_spawn_local_task<F, T>(
+        &self,
+        token: &CancellationToken,
+        future: F,
+    ) -> Result<Self::LocalJoinHandle<T>, SpawnError>
+    where
+        F: Future<Output = Result<T, Cancelled>> + 'static,
+        T: 'static,
+    {
+        self.runtime().try_spawn_local_task(token, future)
+    }
 }
 
 #[cgp_impl(SpawnOnRuntime)]
@@ -44,12 +57,25 @@ where
     {
         self.runtime().spawn_task(future)
     }
+
+    fn try_spawn_task<F, T>(
+        &self,
+        token: &CancellationToken,
+        future: F,
+    ) -> Result<Self::JoinHandle<T>, SpawnError>
+    where
+        F: Future<Output = Result<T, Cancelled>> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.runtime().try_spawn_task(token, future)
+    }
 }
 
 delegate_and_check_components! {
     <R> App<R> {
         RuntimeTypeProviderComponent: UseType<R>,
         RuntimeGetterComponent: UseFields,
+        ErrorTypeProviderComponent: UseType<AppError>,
     }
 }
 
@@ -65,4 +91,45 @@ delegate_and_check_components! {
     <R: CanSpawnTask> App<R> {
         TaskSpawnerComponent: SpawnOnRuntime,
     }
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) enum AppError {
+    Refused(SpawnError),
+    InvalidRecord(u32),
+}
+
+impl<R> CanRaiseError<SpawnError> for App<R> {
+    fn raise_error(error: SpawnError) -> AppError {
+        AppError::Refused(error)
+    }
+}
+
+// A downstream caller translates admission failures and keeps the application's own error in T.
+async fn run_job<C>(
+    app: &C,
+    token: &CancellationToken,
+    result: Result<(), C::Error>,
+) -> Result<TaskOutcome<Result<(), C::Error>>, C::Error>
+where
+    C: CanSpawnTask + CanRaiseError<SpawnError>,
+    C::Error: Send + 'static,
+{
+    let mut owner = app
+        .try_spawn_task(token, async move { Ok(result) })
+        .map_err(C::raise_error)?;
+    Ok(owner.drain().await)
+}
+
+pub(super) async fn check_errors<R: CanSpawnTask>(app: &App<R>) {
+    let token = CancellationToken::new();
+    assert_eq!(
+        run_job(app, &token, Err(AppError::InvalidRecord(17))).await,
+        Ok(TaskOutcome::Completed(Err(AppError::InvalidRecord(17))))
+    );
+    token.request_cancel();
+    assert_eq!(
+        run_job(app, &token, Ok(())).await,
+        Err(AppError::Refused(SpawnError::Cancelled))
+    );
 }

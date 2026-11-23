@@ -36,12 +36,31 @@ the original allocation. A second case drops a pending owner and waits for the t
 receiver to be destroyed. [Local-spawn acceptance tests](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs)
 
 The multithreaded cases submit work through `CanSpawnTask` on a Tokio runtime handle and a Smol
-executor with two workers. Each observes the task's first poll on a different thread from the
+executor with two workers. The test application wires each spawn component independently and
+selects its runtime through CGP's `HasRuntime` getter. Its generic caller raises admission errors
+with `CanRaiseError<SpawnError>` and recovers a typed application error inside `Completed`.
+[Application wiring](crates/tests/cgp-concurrency-tests/tests/task_ownership/app.rs)
+
+Each worker case observes the task's first poll on a different thread from the
 caller, recovers a `Cell<u32>` as the output, and verifies that dropping a second pending owner
 destroys its task. The facade doctests compile a future holding an `Arc` across an await and
 check that the same cross-thread call with an `Rc` fails to compile.
 
-The nextest timeout catches a missing wake or an owner that leaves its task running.
+The same facade scenarios run on Tokio current-thread and multithread runtimes and Smol local
+and multithread executors. Bounded channels place a cooperative request before or after waiter
+registration, and force abort or completion to win. The suite drains acknowledged and ignored
+requests and observes destruction before drain returns. Two tasks register on one token before
+a single request cancels both. A separate check records each waiter's wakeup directly.
+Panic cases cover a poll and a destructor that both panic, a completed value discarded after
+cleanup panics, a destructor that panics during abort, and a panic payload whose own destructor
+panics. The suite refuses an unpolled future with a panicking destructor,
+drops a local owner after publication, and drops a worker owner during its final poll. These cases
+check cleanup even when nobody drains the result. A separate thread drains a transferred worker
+handle and the caller observes destruction only after dropping the returned value. Smol also
+exercises cleanup on shutdown before the first poll.
+Separate shutdown cases poll owners while unrelated work is queued on an idle executor, then
+drive the tasks and destroy the executor to verify `RuntimeFailure`. The nextest timeout guards
+against a lost wake. [Shared scenarios](crates/tests/cgp-concurrency-tests/tests/task_ownership/scenarios.rs) · [Timeout configuration](.config/nextest.toml)
 
 ## How we will test parallel handlers
 

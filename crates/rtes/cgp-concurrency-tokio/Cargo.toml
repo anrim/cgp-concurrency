@@ -13,7 +13,7 @@ description = "Tokio runtime provider for CGP concurrency components."
 readme = "README.md"
 
 [dependencies]
-cgp-concurrency-runtime = { workspace = true }
+cgp-concurrency-runtime = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["rt"] }
 
 [lints]

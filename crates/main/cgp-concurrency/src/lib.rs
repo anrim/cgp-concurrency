@@ -10,9 +10,9 @@ pub use cgp_concurrency_tokio as tokio;
 
 pub mod prelude {
     pub use crate::runtime::{
-        CanSpawnLocalTask, CanSpawnTask, HasRuntime, HasRuntimeType, LocalTaskSpawner,
-        LocalTaskSpawnerComponent, RuntimeGetter, RuntimeGetterComponent, RuntimeOf,
-        RuntimeTypeProvider, RuntimeTypeProviderComponent, TaskOutcome, TaskSpawner,
-        TaskSpawnerComponent,
+        CanSpawnLocalTask, CanSpawnTask, CancellationToken, Cancelled, HasRuntime, HasRuntimeType,
+        LocalTaskSpawner, LocalTaskSpawnerComponent, RuntimeGetter, RuntimeGetterComponent,
+        RuntimeOf, RuntimeTypeProvider, RuntimeTypeProviderComponent, SpawnError, TaskHandle,
+        TaskOutcome, TaskSpawner, TaskSpawnerComponent,
     };
 }

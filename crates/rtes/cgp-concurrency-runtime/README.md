@@ -13,3 +13,13 @@ executor must keep running to reclaim it.
 Use `CanSpawnTask::spawn_task` for work that may cross threads. The future, its output, and the
 owned handle are all `Send + 'static`. The handle has the same completion and drop behavior as
 the local handle.
+
+Both spawn traits also offer fallible admission with a `CancellationToken`. Use
+`TaskHandle::request_cancel` for a cooperative request, `abort` to stop pending work at a poll
+boundary, and `drain` to await termination. The outcome distinguishes completed application
+values, cancellation, an observed panic, and executor failure.
+
+Both native adapters enable the optional `std` feature to convert unwind payloads into task
+outcomes. String payloads retain their message. An opaque payload yields `Panicked(None)`
+even if its destructor panics. If that destructor itself panics with another opaque payload,
+the adapter leaves the secondary payload allocated to avoid recursively running arbitrary destructors.

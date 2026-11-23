@@ -1,13 +1,14 @@
 # Release tasks
 
-**Next release — v0.1.0.**
+**v0.1.0 release acceptance is complete.** Local and cross-thread tasks support cancellation,
+abort, and drain through the portable API on Tokio and Smol.
 Each release runs its acceptance checks deterministically on Tokio and Smol and passes the shared
 [verification gates](CONTRIBUTING.md#verification). The [design](DESIGN.md) defines ownership,
 execution boundaries, and the bare-metal check required for a cross-target `no_std` claim.
 
 ## v0.1.0 — Own a portable task from spawn to termination
 
-### Implementation
+### Completed
 
 - [x] **Local spawn and await.** [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime)
   exports `CanSpawnLocalTask` and `TaskOutcome`. The shared
@@ -23,15 +24,23 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
 - [x] **Tokio and Smol spawn adapters.** Both local executors accept an `Rc`. The
   [multithreaded cases](TESTING.md#run-the-conformance-suite) drive the public adapters on worker
   threads, recover a completed value, and observe reclamation after dropping a pending owner.
-- [ ] **Cancellation and failure.** Distinguish refusal, cancellation, application errors, panics and executor loss. Abort and drain accepted work.
+
+- [x] **Cancellation and failure.** Fallible spawn refuses a previously cancelled token.
+  Accepted tasks can acknowledge or ignore cooperative requests. The owner can abort and drain
+  them. Completion preserves application errors, and both adapters distinguish cancellation,
+  an observed panic, and executor loss. [Facade API](crates/main/cgp-concurrency/README.md#cancellation-and-failure)
 
 ### Release acceptance
 
-- [ ] Run the shared scenarios in all four execution modes. Force both winners of the completion
-  and cancellation race. Request cancellation before and after waiter registration. Drain after
-  abort, observe reclamation after handle drop, and verify polling a handle leaves unrelated work alone.
-- [ ] Verify that the workspace builds against published CGP dependencies. Run the same portable caller
-  through each facade feature and pass the [full release checks](CONTRIBUTING.md#verification).
+- [x] Shared facade scenarios passed in all four execution modes, including both race winners,
+  requests before and after waiter registration, abort followed by drain, and reclamation after
+  drop. Both adapters preserved the refusal when cleanup panicked and reclaimed unclaimed task
+  results when their destructors panicked. Polling a pending owner left unrelated queued work untouched.
+- [x] The workspace builds against published CGP v0.8.0. The portable caller passed with each
+  provider enabled separately and both together. The [full release checks](CONTRIBUTING.md#verification) passed.
+- [x] Both spawn components passed through [checked CGP application wiring](crates/tests/cgp-concurrency-tests/tests/task_ownership/app.rs).
+  The caller converted a refusal into its own error type and recovered an application error inside `Completed`.
+  Drain preserved the original polling panic when task destruction also panicked.
 
 ## v0.2.0 — Join typed handlers in the current task
 

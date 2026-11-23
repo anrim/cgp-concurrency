@@ -217,12 +217,16 @@ version = "0.1.0"
 dependencies = [
  "cgp-core",
  "cgp-runtime",
+ "event-listener",
+ "futures-lite",
+ "pin-project-lite",
 ]
 
 [[package]]
 name = "cgp-concurrency-smol"
 version = "0.1.0"
 dependencies = [
+ "async-executor",
  "cgp-concurrency-runtime",
  "smol",
 ]

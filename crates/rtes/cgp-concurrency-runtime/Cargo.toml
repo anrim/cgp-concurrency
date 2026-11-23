@@ -12,7 +12,13 @@ categories = { workspace = true }
 description = "Portable task lifecycle contracts for CGP concurrency."
 readme = "README.md"
 
+[features]
+std = []
+
 [dependencies]
+event-listener = { version = "5.4", default-features = false }
+futures-lite = { version = "2.6", default-features = false }
+pin-project-lite = "0.2"
 cgp-core = { workspace = true }
 cgp-runtime = { workspace = true }
 

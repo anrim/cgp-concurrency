@@ -50,7 +50,11 @@ contract crate so the facade can select either adapter without a dependency cycl
 
 - Every spawned task has an owner and exactly one terminal outcome.
 - Cooperative cancellation, forced abort, and waiting for termination are distinct operations.
-- Cancellation stops admission, requests cancellation or abortion, and drains every owned task.
+- Fallible spawn checks the cooperative token at admission. A prior request returns
+  `SpawnError::Cancelled` before scheduling. Accepted work can acknowledge the request after cleanup
+  or finish with a value. A shared token broadcasts to every attached task.
+- Each owner has a separate abort signal. An abort wakes the scheduled future, which drops
+  pending work at a poll boundary. Drain observes termination through the native join handle.
 - Dropping an owned handle requests abortion; the provider remains responsible for reclamation.
 - No public operation silently detaches work.
 - Completion racing with cancellation reports the terminal state that actually wins.
@@ -69,18 +73,25 @@ Handler traits and context types do not receive blanket `Send + Sync` bounds.
 
 ### Infrastructure and application outcomes remain separate
 
-The portable infrastructure outcome is conceptually:
+The portable task outcome has four variants.
 
 ```text
 TaskOutcome<T>
 ├── Completed(T)
 ├── Cancelled
-├── Panicked(...)
-└── RuntimeFailure(...)
+├── Panicked(Option<String>)
+└── RuntimeFailure
 ```
 
 Application errors remain inside `T`, commonly as `Completed(Result<Output, Error>)`. Panic detail
 is available only where the runtime and unwind mode can observe it.
+
+With unwinding enabled, both native adapters contain destructor panics when disposing of refused
+work or an unclaimed result. A prior cancellation still yields `SpawnError::Cancelled`. Draining a
+completed task transfers the value to the caller, who then owns its destruction.
+If both polling the submitted future and subsequently dropping it panic, the owner receives
+the polling panic. If the future returned a value and its destructor panics, the owner receives
+the cleanup panic and the adapter discards the value.
 
 ### Bounds and ordering are explicit
 

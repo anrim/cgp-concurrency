@@ -13,7 +13,8 @@ description = "Smol runtime provider for CGP concurrency components."
 readme = "README.md"
 
 [dependencies]
-cgp-concurrency-runtime = { workspace = true }
+async-executor = "1.14"
+cgp-concurrency-runtime = { workspace = true, features = ["std"] }
 smol = { workspace = true }
 
 [lints]
