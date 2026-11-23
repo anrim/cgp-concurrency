@@ -14,7 +14,9 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
   [acceptance test](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs)
   runs a generic caller on Tokio and Smol, holds an `Rc` across suspension, and recovers the
   same allocation as `Completed` through a mutable borrow of the owned handle.
-- [ ] **Conformance fixtures.** Control the first poll and release of a task and observe its destruction.
+- [x] **Conformance fixtures.** The [shared suite](crates/tests/cgp-concurrency-tests) uses a
+  first-poll signal, a completion gate, and a destruction witness to check task ownership on both
+  providers. Run it with `cargo nextest run --locked -p cgp-concurrency-tests --all-features`.
 - [ ] **Cross-thread spawn and await.** Define the portable `Send` boundary and check that an `Rc` held across an await is rejected.
 - [ ] **Tokio and Smol spawn adapters.** Run the public worker-spawn cases on each multithreaded executor.
 - [ ] **Cancellation and failure.** Distinguish refusal, cancellation, application errors, panics and executor loss. Abort and drain accepted work.

@@ -1,0 +1,4 @@
+# A detached task or lost wake can leave the ownership probe waiting indefinitely.
+[[profile.default.overrides]]
+filter = "binary(task_ownership)"
+slow-timeout = { period = "15s", terminate-after = 2 }

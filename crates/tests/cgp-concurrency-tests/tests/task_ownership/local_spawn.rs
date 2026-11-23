@@ -24,6 +24,19 @@ async fn recovers_rc_after_suspension(runtime: &impl CanSpawnLocalTask) {
     assert!(matches!(outcome, TaskOutcome::Completed(found) if Rc::ptr_eq(&found, &expected)));
 }
 
+async fn reclaims_pending_task(runtime: &impl CanSpawnLocalTask) {
+    let (start, started) = bounded(1);
+    let (release, gate) = bounded::<()>(1);
+    let owner = runtime.spawn_local_task(async move {
+        start.try_send(()).unwrap();
+        gate.recv().await.unwrap();
+    });
+    started.recv().await.unwrap();
+    drop(owner);
+    // Only destroying the pending task can drop the sole receiver of this unopened gate.
+    release.closed().await;
+}
+
 #[cfg(feature = "tokio")]
 #[test]
 fn tokio_local_spawn() {
@@ -36,6 +49,7 @@ fn tokio_local_spawn() {
     };
     local.block_on(&runtime, async {
         recovers_rc_after_suspension(&app).await;
+        reclaims_pending_task(&app).await;
     });
 }
 
@@ -48,5 +62,6 @@ fn smol_local_spawn() {
     };
     smol::block_on(local.run(async {
         recovers_rc_after_suspension(&app).await;
+        reclaims_pending_task(&app).await;
     }));
 }

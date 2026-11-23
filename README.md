@@ -25,7 +25,7 @@ not provide detached tasks.
 | [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime) | Portable contract | Local spawn, owned handle and completed output |
 | [`cgp-concurrency-tokio`](crates/rtes/cgp-concurrency-tokio) | Tokio provider | Local spawn on a `LocalSet` |
 | [`cgp-concurrency-smol`](crates/rtes/cgp-concurrency-smol) | Smol provider | Local spawn on a `LocalExecutor` |
-| [`cgp-concurrency-tests`](crates/tests/cgp-concurrency-tests) | Shared provider conformance tests | Local spawn acceptance tests |
+| [`cgp-concurrency-tests`](crates/tests/cgp-concurrency-tests) | Shared provider conformance tests | Smoke tests and deterministic task ownership tests |
 
 This project targets CGP v0.8.0 and versions itself independently.
 
@@ -35,7 +35,7 @@ This project targets CGP v0.8.0 and versions itself independently.
 | --- | --- |
 | [Design](DESIGN.md) | Ownership, dependency direction, and execution contracts |
 | [Release tasks](TASKS.md) | Scope, status, and acceptance criteria by release |
-| [Testing](TESTING.md) | Run the local spawn acceptance tests |
+| [Testing](TESTING.md) | Run the conformance suite and see how parallel handlers will be tested |
 | [Contributing](CONTRIBUTING.md) | SDLC, local checks, review, and release process |
 | [Changelog](CHANGELOG.md) | User-visible changes |
 
