@@ -68,4 +68,6 @@ async fn read_on_worker(runtime: &impl CanSpawnTask, gate: impl Future<Output = 
 }
 ```
 
-Run `cargo test --locked -p cgp-concurrency --doc` to check the cross-thread type boundary.
+The [shared acceptance tests](../../tests/cgp-concurrency-tests/tests/task_ownership) exercise
+both operations on Tokio and Smol. See the [release checklist](../../../TASKS.md) for explicit
+cancellation and failure reporting.

@@ -20,7 +20,9 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
 - [x] **Cross-thread spawn and await.** `CanSpawnTask` accepts a `Send + 'static` future and
   output. The [facade examples](crates/main/cgp-concurrency/README.md) compile with an `Arc` and
   verify that the compiler rejects an `Rc` held across an await at the cross-thread call.
-- [ ] **Tokio and Smol spawn adapters.** Run the public worker-spawn cases on each multithreaded executor.
+- [x] **Tokio and Smol spawn adapters.** Both local executors accept an `Rc`. The
+  [multithreaded cases](TESTING.md#run-the-conformance-suite) drive the public adapters on worker
+  threads, recover a completed value, and observe reclamation after dropping a pending owner.
 - [ ] **Cancellation and failure.** Distinguish refusal, cancellation, application errors, panics and executor loss. Abort and drain accepted work.
 
 ### Release acceptance

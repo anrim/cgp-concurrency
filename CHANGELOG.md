@@ -8,6 +8,7 @@ All notable changes to this project are documented here.
 
 - A portable `CanSpawnLocalTask` contract in `cgp-concurrency-runtime`, exposed through the
   facade, with Tokio and Smol local spawners and shared ownership tests.
-- Cross-thread spawning through the portable `CanSpawnTask` component.
+- Cross-thread spawning through `CanSpawnTask`, with `TokioSpawner` and `SmolSpawner`
+  accepting owned `Send` futures and returning transferable task owners.
 - Initial facade, Tokio provider, Smol provider, and conformance-test workspace.
 - CI gates for formatting, linting, feature isolation, tests, and documentation.

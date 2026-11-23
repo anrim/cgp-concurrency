@@ -5,7 +5,8 @@ Runtime-neutral structured concurrency for
 
 > [!IMPORTANT]
 > Use `CanSpawnLocalTask` with Tokio or Smol to run a future that holds an `Rc` across an await
-> and recover it as `TaskOutcome::Completed`. The portable contract lives in this workspace.
+> and recover it as `TaskOutcome::Completed`. Use `CanSpawnTask` to submit owned `Send` work
+> to a worker runtime. Both operations return an owned handle.
 > Both adapters use the same published CGP dependency.
 
 ## Scope
@@ -22,9 +23,9 @@ not provide detached tasks.
 | Crate | Purpose | Status |
 | --- | --- | --- |
 | [`cgp-concurrency`](crates/main/cgp-concurrency) | Runtime-neutral facade | Portable task API and optional adapters |
-| [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime) | Portable contract | Local and cross-thread spawn contracts |
-| [`cgp-concurrency-tokio`](crates/rtes/cgp-concurrency-tokio) | Tokio provider | Local spawn on a `LocalSet` |
-| [`cgp-concurrency-smol`](crates/rtes/cgp-concurrency-smol) | Smol provider | Local spawn on a `LocalExecutor` |
+| [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime) | Portable contract | Local and cross-thread spawn, owned handle and completed output |
+| [`cgp-concurrency-tokio`](crates/rtes/cgp-concurrency-tokio) | Tokio provider | Local spawn on a `LocalSet` and worker tasks through a runtime `Handle` |
+| [`cgp-concurrency-smol`](crates/rtes/cgp-concurrency-smol) | Smol provider | Local spawn on a `LocalExecutor` and worker tasks on an `Executor` |
 | [`cgp-concurrency-tests`](crates/tests/cgp-concurrency-tests) | Shared provider conformance tests | Smoke tests and deterministic task ownership tests |
 
 This project targets CGP v0.8.0 and versions itself independently.

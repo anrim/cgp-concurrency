@@ -13,7 +13,7 @@ tokio = ["cgp-concurrency/tokio", "dep:tokio"]
 
 [dependencies]
 smol = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true, features = ["rt"] }
+tokio = { workspace = true, optional = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 async-channel = "2.5"

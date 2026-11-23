@@ -20,7 +20,12 @@ This filter reruns just the public local-spawn acceptance test on both providers
 cargo nextest run --locked -p cgp-concurrency-tests --all-features -E 'test(local_spawn::)'
 ```
 
-Run `cargo test --locked -p cgp-concurrency --doc` to check both sides of the worker-spawn type boundary.
+Run the two public worker-spawn cases and check the type boundary in the facade's doctests.
+
+```sh
+cargo nextest run --locked -p cgp-concurrency-tests --all-features -j 1 -E 'test(multithread)'
+cargo test --locked -p cgp-concurrency --doc
+```
 
 ## What runs today
 
@@ -29,6 +34,12 @@ It calls the public spawn component through a test application's compile-time ch
 It observes a pending handle, releases the task, then checks that the returned `Rc` points to
 the original allocation. A second case drops a pending owner and waits for the task's channel
 receiver to be destroyed. [Local-spawn acceptance tests](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs)
+
+The multithreaded cases submit work through `CanSpawnTask` on a Tokio runtime handle and a Smol
+executor with two workers. Each observes the task's first poll on a different thread from the
+caller, recovers a `Cell<u32>` as the output, and verifies that dropping a second pending owner
+destroys its task. The facade doctests compile a future holding an `Arc` across an await and
+check that the same cross-thread call with an `Rc` fails to compile.
 
 The nextest timeout catches a missing wake or an owner that leaves its task running.
 
@@ -43,10 +54,7 @@ of events explicitly so it also works when nextest runs a single test at a time.
 | Join of spawned children (v0.3) | Run the same scenarios on Tokio and Smol with local and cross-thread tasks. In separate cases cancel the parent, panic a child, and refuse a later spawn after a child has started. Record child starts, outcomes, and destruction. | Cancellation and spawn refusal stop admission. The parent drains every accepted child before it returns. A child panic is observable in its branch's result. |
 | Bounded map (v0.4) | Set the limit to two and hold both active items at gates. Check the third has not started, then release the second and wait for the third to start while the first is still pending. Count active handlers and record the peak. | The peak is exactly two. Results, including item errors, follow input order. Empty input starts no handlers and a zero limit is rejected before any handler starts. |
 
-For cross-thread cases, use atomics for counts and channels or barriers for handoffs. For the
-planned cross-thread spawn API, pair a compiling `Send` example with a rustdoc `compile_fail`
-case that passes a future holding an `Rc` across an await. Keep the matching local example as a
-positive control.
+For cross-thread cases, use atomics for counts and channels or barriers for handoffs.
 
 ## CI checks
 
