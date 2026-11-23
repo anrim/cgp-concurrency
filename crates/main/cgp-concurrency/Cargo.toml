@@ -1,0 +1,26 @@
+[package]
+name = "cgp-concurrency"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+description = "Runtime-neutral concurrency components for Context-Generic Programming."
+readme = "README.md"
+
+[features]
+default = []
+smol = ["dep:cgp-concurrency-smol"]
+tokio = ["dep:cgp-concurrency-tokio"]
+
+[dependencies]
+cgp-concurrency-runtime = { workspace = true }
+cgp-concurrency-smol = { workspace = true, optional = true }
+cgp-concurrency-tokio = { workspace = true, optional = true }
+
+[lints]
+workspace = true
