@@ -20,6 +20,8 @@ This filter reruns just the public local-spawn acceptance test on both providers
 cargo nextest run --locked -p cgp-concurrency-tests --all-features -E 'test(local_spawn::)'
 ```
 
+Run `cargo test --locked -p cgp-concurrency --doc` to check both sides of the worker-spawn type boundary.
+
 ## What runs today
 
 The same caller holds an `Rc` across an await on Tokio's `LocalSet` and Smol's `LocalExecutor`.

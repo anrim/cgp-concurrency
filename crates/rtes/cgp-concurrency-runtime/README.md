@@ -9,3 +9,7 @@ output, and handle may be non-`Send`. The executor can run the task before the f
 Await `&mut owner` to recover `TaskOutcome::Completed(value)`. Interrupting a pending borrowed
 wait preserves the owner. Dropping the owner of a pending task requests abortion, and the
 executor must keep running to reclaim it.
+
+Use `CanSpawnTask::spawn_task` for work that may cross threads. The future, its output, and the
+owned handle are all `Send + 'static`. The handle has the same completion and drop behavior as
+the local handle.

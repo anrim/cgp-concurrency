@@ -22,7 +22,7 @@ not provide detached tasks.
 | Crate | Purpose | Status |
 | --- | --- | --- |
 | [`cgp-concurrency`](crates/main/cgp-concurrency) | Runtime-neutral facade | Portable task API and optional adapters |
-| [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime) | Portable contract | Local spawn, owned handle and completed output |
+| [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime) | Portable contract | Local and cross-thread spawn contracts |
 | [`cgp-concurrency-tokio`](crates/rtes/cgp-concurrency-tokio) | Tokio provider | Local spawn on a `LocalSet` |
 | [`cgp-concurrency-smol`](crates/rtes/cgp-concurrency-smol) | Smol provider | Local spawn on a `LocalExecutor` |
 | [`cgp-concurrency-tests`](crates/tests/cgp-concurrency-tests) | Shared provider conformance tests | Smoke tests and deterministic task ownership tests |

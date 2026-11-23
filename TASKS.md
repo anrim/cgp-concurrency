@@ -17,7 +17,9 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
 - [x] **Conformance fixtures.** The [shared suite](crates/tests/cgp-concurrency-tests) uses a
   first-poll signal, a completion gate, and a destruction witness to check task ownership on both
   providers. Run it with `cargo nextest run --locked -p cgp-concurrency-tests --all-features`.
-- [ ] **Cross-thread spawn and await.** Define the portable `Send` boundary and check that an `Rc` held across an await is rejected.
+- [x] **Cross-thread spawn and await.** `CanSpawnTask` accepts a `Send + 'static` future and
+  output. The [facade examples](crates/main/cgp-concurrency/README.md) compile with an `Arc` and
+  verify that the compiler rejects an `Rc` held across an await at the cross-thread call.
 - [ ] **Tokio and Smol spawn adapters.** Run the public worker-spawn cases on each multithreaded executor.
 - [ ] **Cancellation and failure.** Distinguish refusal, cancellation, application errors, panics and executor loss. Abort and drain accepted work.
 

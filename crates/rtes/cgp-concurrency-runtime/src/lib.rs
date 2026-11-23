@@ -10,4 +10,7 @@ pub use cgp_runtime::{
     HasRuntime, HasRuntimeType, RuntimeGetter, RuntimeGetterComponent, RuntimeOf,
     RuntimeTypeProvider, RuntimeTypeProviderComponent,
 };
-pub use task::{CanSpawnLocalTask, LocalTaskSpawner, LocalTaskSpawnerComponent, TaskOutcome};
+pub use task::{
+    CanSpawnLocalTask, CanSpawnTask, LocalTaskSpawner, LocalTaskSpawnerComponent, TaskOutcome,
+    TaskSpawner, TaskSpawnerComponent,
+};

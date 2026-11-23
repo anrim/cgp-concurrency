@@ -28,3 +28,17 @@ pub trait CanSpawnLocalTask {
         F: Future<Output = T> + 'static,
         T: 'static;
 }
+
+/// Submits owned work to an executor that may move the task between threads.
+#[cgp_component(TaskSpawner)]
+pub trait CanSpawnTask {
+    /// Owns the task and can be moved to another thread to await its outcome.
+    /// Dropping a pending owner requests abortion. The executor must run to reclaim the task.
+    type JoinHandle<T: Send + 'static>: Future<Output = TaskOutcome<T>> + Send + Unpin + 'static;
+
+    /// Schedules the future immediately. Await a mutable borrow to retain ownership across waits.
+    fn spawn_task<F, T>(&self, future: F) -> Self::JoinHandle<T>
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: Send + 'static;
+}

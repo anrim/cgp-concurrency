@@ -59,7 +59,8 @@ contract crate so the facade can select either adapter without a dependency cycl
 
 - Cooperative joins may borrow data and use non-`Send` futures in the current task.
 - Local spawning accepts non-`Send` work only on a compatible local executor.
-- Work crossing a multithreaded boundary requires `Send + 'static`.
+- `CanSpawnTask` submits a `Send + 'static` future with a `Send + 'static` output. Its owner
+  can move across threads. Tokio uses the supplied runtime handle and Smol uses the supplied executor.
 - `Sync` is required only when referenced state is genuinely shared across threads.
 - Blocking work has its own `Send + 'static` closure boundary and runs on the provider's blocking pool.
 
