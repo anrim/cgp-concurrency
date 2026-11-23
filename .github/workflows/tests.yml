@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request: {}
+  push:
+    branches: [main]
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  NEXTEST_VERSION: 0.9.148
+  RUSTFMT_TOOLCHAIN: nightly-2026-10-17
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: Rustfmt (nightly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly rustfmt
+        run: rustup toolchain install "$RUSTFMT_TOOLCHAIN" --profile minimal --component rustfmt
+      - run: cargo +"$RUSTFMT_TOOLCHAIN" fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup toolchain install
+      - name: Clippy (all features)
+        run: cargo clippy --locked --all-features --all-targets -- -D warnings
+      - name: Clippy (no default features)
+        run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
+
+  msrv:
+    name: MSRV (Rust 1.89)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MSRV toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal
+      - run: cargo +1.89.0 check --locked --workspace --all-features --all-targets
+
+  features:
+    name: Feature isolation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup toolchain install
+      - run: cargo check --locked -p cgp-concurrency --no-default-features
+      - run: cargo check --locked -p cgp-concurrency --no-default-features --features tokio
+      - run: cargo check --locked -p cgp-concurrency --no-default-features --features smol
+      - run: cargo check --locked -p cgp-concurrency --all-features
+
+  test:
+    name: Test (nextest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup toolchain install
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --version "$NEXTEST_VERSION" --locked
+      - run: cargo nextest run --locked --workspace --all-features --no-fail-fast
+      - run: cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --features tokio
+      - run: cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --features smol
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup toolchain install
+      - run: cargo test --locked --workspace --all-features --doc
+      - run: cargo doc --locked --workspace --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings

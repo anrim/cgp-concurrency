@@ -1,0 +1,21 @@
+[package]
+name = "cgp-concurrency-smol"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+description = "Smol runtime provider for CGP concurrency components."
+readme = "README.md"
+
+[dependencies]
+async-executor = "1.14"
+cgp-concurrency-runtime = { workspace = true, features = ["std"] }
+smol = { workspace = true }
+
+[lints]
+workspace = true
