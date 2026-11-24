@@ -12,8 +12,9 @@ Runtime-neutral structured concurrency for
 ## Scope
 
 CGP's published `cgp-runtime` supplies runtime selection. This workspace defines the portable
-task contract and implements it for Tokio and Smol. The release plan also covers handler
-combinators and concurrency policies that work with either provider.
+task contract and implements it for Tokio and Smol. The facade also provides `JoinHandlers`,
+which joins borrowed handlers in the caller's future with either runtime or with both runtime
+features disabled. [Typed join example](crates/main/cgp-concurrency/README.md#join-typed-handlers)
 
 The facade has no default runtime, does not expose runtime-specific types in portable APIs, and does
 not provide detached tasks.
@@ -22,11 +23,11 @@ not provide detached tasks.
 
 | Crate | Purpose | Status |
 | --- | --- | --- |
-| [`cgp-concurrency`](crates/main/cgp-concurrency) | Runtime-neutral facade | Portable task API and optional adapters |
+| [`cgp-concurrency`](crates/main/cgp-concurrency) | Runtime-neutral facade | Typed joins, portable task API, and optional adapters |
 | [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime) | Portable contract | Local and cross-thread spawn, cancellation, drain, and terminal outcomes |
 | [`cgp-concurrency-tokio`](crates/rtes/cgp-concurrency-tokio) | Tokio provider | Local spawn on a `LocalSet` and worker tasks through a runtime `Handle` |
 | [`cgp-concurrency-smol`](crates/rtes/cgp-concurrency-smol) | Smol provider | Local spawn on a `LocalExecutor` and worker tasks on an `Executor` |
-| [`cgp-concurrency-tests`](crates/tests/cgp-concurrency-tests) | Shared provider conformance tests | Smoke tests and deterministic task ownership tests |
+| [`cgp-concurrency-tests`](crates/tests/cgp-concurrency-tests) | Shared conformance tests | Deterministic typed join and task ownership tests |
 
 This project targets CGP v0.8.0 and versions itself independently.
 

@@ -1,7 +1,7 @@
 # Release tasks
 
-**v0.1.0 release acceptance is complete.** Local and cross-thread tasks support cancellation,
-abort, and drain through the portable API on Tokio and Smol.
+**v0.2.0 typed-join acceptance is complete.** The facade joins borrowed handlers in the caller's
+future and returns every branch's typed result in declaration order.
 Each release runs its acceptance checks deterministically on Tokio and Smol and passes the shared
 [verification gates](CONTRIBUTING.md#verification). The [design](DESIGN.md) defines ownership,
 execution boundaries, and the bare-metal check required for a cross-target `no_std` claim.
@@ -44,10 +44,28 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
 
 ## v0.2.0 — Join typed handlers in the current task
 
-- [ ] Join a fixed list of handlers in the caller's future. Branches may borrow local data and
-  use non-`Send` futures, so this implementation can proceed independently of the spawn adapters.
-- [ ] Hold two branches pending together, then finish them in reverse order with one application
-  error. Return every result in declaration order, preserving each branch's type.
+### Completed
+
+- [x] [`JoinHandlers`](crates/main/cgp-concurrency/src/join.rs) joins a fixed list of handlers in
+  the caller's future. Branches may borrow local data and hold non-`Send` values across suspension.
+- [x] The [facade acceptance test](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) held both
+  branches pending, finished the second with an application error, and recovered both typed results
+  in declaration order. Both gates woke the caller on Tokio, on Smol, and with no runtime feature.
+- [x] Store one pending future or completed result per branch. With 1 KiB outputs at 4, 8, and 16
+  branches, the [layout regression test](crates/tests/cgp-concurrency-tests/tests/typed_join_layout.rs)
+  measured 4,160, 8,288, and 16,544 bytes, down from 10,480, 37,328, and 140,240 bytes
+  (optimized Rust 1.100.0 on aarch64 macOS).
+
+### Release acceptance
+
+- [x] The [three-branch scenario](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs)
+  held all branches pending, completed them middle, last, then first, and recovered two distinct
+  application errors and a borrowed value in declaration order on all three callers.
+- [x] The [facade doctest](crates/main/cgp-concurrency/README.md#join-typed-handlers) runs the join
+  inside `PipeHandlers`. The reporting handler recovers the borrowed label with both a valid and
+  an invalid port.
+- [x] The typed-join [PR checks](https://github.com/anrim/cgp-concurrency/pull/1/checks) cover
+  the no-runtime join, each provider separately, and the full workspace suite.
 
 ## v0.3.0 — Run handler branches as owned child tasks
 

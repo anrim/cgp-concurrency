@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.89"
 license = "Apache-2.0"
@@ -21,12 +21,13 @@ categories = ["asynchronous", "concurrency", "rust-patterns"]
 
 [workspace.dependencies]
 cgp-core = "0.8.0"
+cgp-handler = "0.8.0"
 cgp-runtime = "0.8.0"
 
-cgp-concurrency = { version = "0.1.0", path = "./crates/main/cgp-concurrency", default-features = false }
-cgp-concurrency-runtime = { version = "0.1.0", path = "./crates/rtes/cgp-concurrency-runtime" }
-cgp-concurrency-smol = { version = "0.1.0", path = "./crates/rtes/cgp-concurrency-smol" }
-cgp-concurrency-tokio = { version = "0.1.0", path = "./crates/rtes/cgp-concurrency-tokio" }
+cgp-concurrency = { version = "0.2.0", path = "./crates/main/cgp-concurrency", default-features = false }
+cgp-concurrency-runtime = { version = "0.2.0", path = "./crates/rtes/cgp-concurrency-runtime" }
+cgp-concurrency-smol = { version = "0.2.0", path = "./crates/rtes/cgp-concurrency-smol" }
+cgp-concurrency-tokio = { version = "0.2.0", path = "./crates/rtes/cgp-concurrency-tokio" }
 
 smol = { version = "2.0.2" }
 tokio = { version = "1.54.1", default-features = false }

@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## v0.2.0
+
+This release targets CGP v0.8.0 and requires Rust 1.89 or later.
+
+### Added
+
+- `JoinHandlers` polls a fixed list of CGP handlers in the caller's future. Branches can borrow
+  local data and hold non-`Send` values across suspension. The caller receives every result,
+  including application errors, in declaration order. The join works with the facade's default
+  feature set and can feed its results into another handler. [Facade example](crates/main/cgp-concurrency/README.md#join-typed-handlers)
+
 ## v0.1.0 — 2026-11-23
 
 This first release targets CGP v0.8.0 and requires Rust 1.89 or later.

@@ -20,16 +20,30 @@ This filter reruns just the public local-spawn acceptance test on both providers
 cargo nextest run --locked -p cgp-concurrency-tests --all-features -E 'test(local_spawn::)'
 ```
 
-Run the two public worker-spawn cases and check the type boundary in the facade's doctests.
+Run the public worker-spawn cases on both providers.
 
 ```sh
 cargo nextest run --locked -p cgp-concurrency-tests --all-features -j 1 -E 'test(multithread)'
+```
+
+For typed joins, run both the behavior and future-size tests. The facade doctests exercise
+composition with `PipeHandlers` and check that surplus inputs fail to compile.
+
+```sh
+cargo nextest run --locked -p cgp-concurrency-tests --all-features --test typed_join --test typed_join_layout
 cargo test --locked -p cgp-concurrency --doc
 ```
 
 ## What runs today
 
-The same caller holds an `Rc` across an await on Tokio's `LocalSet` and Smol's `LocalExecutor`.
+The [typed join test](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) holds both handlers
+at separate gates, then lets the second return an application error. Each gate must wake the
+caller. The first handler returns an `Rc` borrowing the caller's string, and both results arrive
+in declaration order. A [three-branch case](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs)
+opens the middle, last, and first gates on successive wakeups and checks both distinct errors
+and the borrowed value.
+
+The local-spawn test holds an `Rc` across an await on Tokio's `LocalSet` and Smol's `LocalExecutor`.
 It calls the public spawn component through a test application's compile-time checked CGP wiring.
 It observes a pending handle, releases the task, then checks that the returned `Rc` points to
 the original allocation. A second case drops a pending owner and waits for the task's channel
@@ -69,7 +83,6 @@ of events explicitly so it also works when nextest runs a single test at a time.
 
 | Operation | How the test drives it | What must hold |
 | --- | --- | --- |
-| Typed join in the caller's task (v0.2) | Give two branches separate release gates. Wait for both to report their first poll while both gates are closed. Let the second finish before releasing the first. Use borrowed data and return an application error from one branch. | Both branches make progress while the other is pending. The caller receives both typed results in declaration order. |
 | Join of spawned children (v0.3) | Run the same scenarios on Tokio and Smol with local and cross-thread tasks. In separate cases cancel the parent, panic a child, and refuse a later spawn after a child has started. Record child starts, outcomes, and destruction. | Cancellation and spawn refusal stop admission. The parent drains every accepted child before it returns. A child panic is observable in its branch's result. |
 | Bounded map (v0.4) | Set the limit to two and hold both active items at gates. Check the third has not started, then release the second and wait for the third to start while the first is still pending. Count active handlers and record the peak. | The peak is exactly two. Results, including item errors, follow input order. Empty input starts no handlers and a zero limit is rejected before any handler starts. |
 
@@ -77,16 +90,6 @@ For cross-thread cases, use atomics for counts and channels or barriers for hand
 
 ## CI checks
 
-The full workspace run exercises both providers. Separate runs catch accidental dependencies
-between their features. Cargo runs the rustdoc examples in a separate step.
-
-```sh
-cargo nextest run --locked --workspace --all-features --no-fail-fast
-cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --features tokio
-cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --features smol
-cargo test --locked --workspace --all-features --doc
-```
-
-CI also checks all four facade feature combinations, runs rustfmt and Clippy, builds on the
-minimum Rust version, and builds documentation with warnings treated as errors.
+CI runs the workspace suite with both providers, tests each provider separately, and runs
+the typed join with both runtime features disabled. The documentation job runs the doctests.
 [Full verification commands](CONTRIBUTING.md#verification) · [CI workflow](.github/workflows/tests.yml)

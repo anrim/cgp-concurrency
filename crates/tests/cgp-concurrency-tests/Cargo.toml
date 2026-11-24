@@ -19,6 +19,7 @@ tokio = { workspace = true, optional = true, features = ["rt-multi-thread"] }
 async-channel = "2.5"
 cgp-concurrency = { workspace = true }
 cgp-core = { workspace = true }
+cgp-handler = { workspace = true }
 futures-lite = "2.6"
 
 [lints]

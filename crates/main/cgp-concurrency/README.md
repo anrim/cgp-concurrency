@@ -9,6 +9,90 @@ adapter. The default feature set is empty.
 | `tokio` | Re-export `cgp-concurrency-tokio` |
 | `smol` | Re-export `cgp-concurrency-smol` |
 
+## Join typed handlers
+
+`JoinHandlers<Product![A, B, …]>` polls all handlers in the caller's future. Wire it to
+CGP's `AsyncComputerComponent` and pass one input per handler in the same order. Each output
+slot holds that handler's own `Result`, even if another handler returns an error first. The
+join needs no runtime feature and accepts borrowed inputs and non-`Send` futures.
+
+This pipeline keeps a borrowed server label and parses a port. The next handler receives both
+results and reports the port as optional, so an invalid port still produces a labeled report.
+`Promote` lets the join serve as the first handler in `PipeHandlers`.
+
+```rust
+extern crate cgp_core as cgp;
+
+use core::num::ParseIntError;
+use cgp::base::types::Cons;
+use cgp::prelude::*;
+use cgp_concurrency::prelude::JoinHandlers;
+use cgp_handler::{CanHandle, Handler, HandlerComponent, PipeHandlers, Promote, ReturnInput};
+
+struct App;
+impl HasErrorType for App {
+    type Error = ParseIntError;
+}
+
+#[cgp_impl(new ParsePort)]
+#[use_type(HasErrorType.Error = ParseIntError)]
+impl<'a> Handler<(), &'a str> {
+    type Output = u16;
+
+    async fn handle(&self, _: PhantomData<()>, port: &'a str) -> Result<u16, Error> {
+        port.parse()
+    }
+}
+
+type Joined<'a> = Product![Result<&'a str, ParseIntError>, Result<u16, ParseIntError>];
+
+#[cgp_impl(new MakeReport)]
+#[use_type(HasErrorType.Error = ParseIntError)]
+impl<'a> Handler<(), Joined<'a>> {
+    type Output = (&'a str, Option<u16>);
+
+    async fn handle(&self, _: PhantomData<()>, results: Joined<'a>) -> Result<Self::Output, Error> {
+        let Cons(label, Cons(port, _)) = results;
+        Ok((label?, port.ok()))
+    }
+}
+
+type ReadEndpoint = JoinHandlers<Product![ReturnInput, ParsePort]>;
+
+delegate_and_check_components! {
+    App {
+        #[check_params(((), Product![&'static str, &'static str]))]
+        HandlerComponent: PipeHandlers<Product![Promote<ReadEndpoint>, MakeReport]>,
+    }
+}
+
+futures_lite::future::block_on(async {
+    let label = String::from("server");
+    for (port, expected) in [("443", Some(443)), ("invalid", None)] {
+        let inputs = product![label.as_str(), port];
+        let report = App.handle(PhantomData::<()>, inputs).await.unwrap();
+        assert_eq!(report, (label.as_str(), expected));
+    }
+});
+```
+
+A join with one handler rejects an input product with two elements.
+
+```compile_fail
+extern crate cgp_core as cgp;
+
+use cgp::prelude::*;
+use cgp_concurrency::JoinHandlers;
+use cgp_handler::{AsyncComputer, ReturnInput};
+
+async fn surplus_input(app: &impl HasErrorType) {
+    type One = JoinHandlers<Product![ReturnInput]>;
+    One::compute_async(app, PhantomData::<()>, product![42_u8, true]).await;
+}
+```
+
+## Spawn owned tasks
+
 A generic caller can move an `Rc` into a task and wait through a mutable borrow of its owner.
 
 ```rust
