@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+- Added `JoinHandlers` to the facade for joining borrowed, non-`Send` handlers in the caller's
+  future and collecting every typed result in declaration order.
+
 ## v0.1.0 — 2026-11-23
 
 This first release targets CGP v0.8.0 and requires Rust 1.89 or later.

@@ -44,10 +44,25 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
 
 ## v0.2.0 — Join typed handlers in the current task
 
-- [ ] Join a fixed list of handlers in the caller's future. Branches may borrow local data and
-  use non-`Send` futures, so this implementation can proceed independently of the spawn adapters.
+### Completed
+
+- [x] [`JoinHandlers`](crates/main/cgp-concurrency/src/join.rs) joins a fixed list of handlers in
+  the caller's future. Branches may borrow local data and hold non-`Send` values across suspension.
+- [x] Store one pending future or completed result per branch. With 1 KiB outputs at 4, 8, and 16
+  branches, the [layout regression test](crates/tests/cgp-concurrency-tests/tests/typed_join_layout.rs)
+  measured 4,160, 8,288, and 16,544 bytes, down from 10,480, 37,328, and 140,240 bytes
+  (optimized Rust 1.100.0 on aarch64 macOS).
+
+### Release acceptance
+
 - [ ] Hold two branches pending together, then finish them in reverse order with one application
   error. Return every result in declaration order, preserving each branch's type.
+- [ ] Hold three branches pending, complete them middle, last, then first, and recover two
+  distinct application errors and a value in declaration order.
+- [ ] Run a downstream CGP pipeline that consumes a borrowed label and a fallible port result,
+  exercising both valid and invalid input in the facade documentation.
+- [ ] Add the no-runtime join acceptance test to CI.
+- [ ] Verify the shared gates, including the no-runtime test, on the reviewed pull request.
 
 ## v0.3.0 — Run handler branches as owned child tasks
 

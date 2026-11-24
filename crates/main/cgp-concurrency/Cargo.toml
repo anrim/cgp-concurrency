@@ -18,9 +18,13 @@ smol = ["dep:cgp-concurrency-smol"]
 tokio = ["dep:cgp-concurrency-tokio"]
 
 [dependencies]
+cgp-core = { workspace = true }
+cgp-handler = { workspace = true }
 cgp-concurrency-runtime = { workspace = true }
 cgp-concurrency-smol = { workspace = true, optional = true }
 cgp-concurrency-tokio = { workspace = true, optional = true }
+futures-util = { version = "0.3", default-features = false }
+pin-project-lite = "0.2"
 
 [lints]
 workspace = true

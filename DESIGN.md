@@ -10,6 +10,7 @@ Dependencies point in one direction:
 
 ```text
 cgp-concurrency → cgp-concurrency-runtime
+cgp-concurrency → published cgp-core and cgp-handler
 cgp-concurrency → optional Tokio / Smol adapter → cgp-concurrency-runtime
 cgp-concurrency-runtime → published cgp-core and cgp-runtime
 ```
@@ -70,6 +71,13 @@ contract crate so the facade can select either adapter without a dependency cycl
 
 Send requirements are recovered at the operation boundary, following CGP's `CanSendRun` pattern.
 Handler traits and context types do not receive blanket `Send + Sync` bounds.
+
+### Typed join in the caller's task
+
+The facade's `JoinHandlers` pairs a fixed product of CGP handlers with a product of inputs.
+The caller's future drives all branches and retains one typed result per completed branch.
+Awaiting the join returns every result in declaration order, including application errors.
+Dropping the join discards retained results and drops pending branch futures.
 
 ### Infrastructure and application outcomes remain separate
 

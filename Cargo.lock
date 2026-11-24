@@ -209,6 +209,10 @@ dependencies = [
  "cgp-concurrency-runtime",
  "cgp-concurrency-smol",
  "cgp-concurrency-tokio",
+ "cgp-core",
+ "cgp-handler",
+ "futures-util",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -238,6 +242,7 @@ dependencies = [
  "async-channel",
  "cgp-concurrency",
  "cgp-core",
+ "cgp-handler",
  "futures-lite",
  "smol",
  "tokio",
@@ -287,6 +292,15 @@ dependencies = [
  "cgp-base-types",
  "cgp-component",
  "cgp-type",
+]
+
+[[package]]
+name = "cgp-handler"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6fcace02fd8c13ec825f9d0e426c007758999583576987719188de107db88d9"
+dependencies = [
+ "cgp-core",
 ]
 
 [[package]]
@@ -427,6 +441,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-task"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd"
+
+[[package]]
+name = "futures-util"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
+dependencies = [
+ "futures-core",
+ "futures-task",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "hermit-abi"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -461,9 +492,9 @@ checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "pin-project-lite"
-version = "0.2.17"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
 
 [[package]]
 name = "piper"

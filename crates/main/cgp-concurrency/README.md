@@ -9,6 +9,38 @@ adapter. The default feature set is empty.
 | `tokio` | Re-export `cgp-concurrency-tokio` |
 | `smol` | Re-export `cgp-concurrency-smol` |
 
+## Join typed handlers
+
+`JoinHandlers<Product![A, B, …]>` polls all handlers in the caller's future. Wire it to
+CGP's `AsyncComputerComponent` and pass one input per handler in the same order. Each output
+slot holds that handler's own `Result`, even if another handler returns an error first. The
+join needs no runtime feature and accepts borrowed inputs and non-`Send` futures.
+
+```rust
+# extern crate cgp_core as cgp;
+use cgp::prelude::*;
+use cgp_concurrency::prelude::JoinHandlers;
+use cgp_handler::{AsyncComputerComponent, CanComputeAsync, ReturnInput};
+
+struct App;
+impl HasErrorType for App {
+    type Error = ();
+}
+
+delegate_components! {
+    App {
+        AsyncComputerComponent: JoinHandlers<Product![ReturnInput, ReturnInput]>,
+    }
+}
+
+async fn read_pair(label: &str, count: u32) {
+    let results = App.compute_async(PhantomData::<()>, product![label, count]).await;
+    assert_eq!(results, product![Ok(label), Ok(count)]);
+}
+```
+
+## Spawn owned tasks
+
 A generic caller can move an `Rc` into a task and wait through a mutable borrow of its owner.
 
 ```rust

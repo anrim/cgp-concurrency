@@ -21,6 +21,7 @@ categories = ["asynchronous", "concurrency", "rust-patterns"]
 
 [workspace.dependencies]
 cgp-core = "0.8.0"
+cgp-handler = "0.8.0"
 cgp-runtime = "0.8.0"
 
 cgp-concurrency = { version = "0.1.0", path = "./crates/main/cgp-concurrency", default-features = false }
