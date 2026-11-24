@@ -1,4 +1,4 @@
-# A detached task or lost wake can leave the ownership probe waiting indefinitely.
+# A lost wake can leave an ownership or join test waiting indefinitely.
 [[profile.default.overrides]]
-filter = "binary(task_ownership)"
+filter = "binary(task_ownership) | binary(typed_join)"
 slow-timeout = { period = "15s", terminate-after = 2 }

@@ -75,6 +75,7 @@ jobs:
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --version "$NEXTEST_VERSION" --locked
       - run: cargo nextest run --locked --workspace --all-features --no-fail-fast
+      - run: cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --test typed_join
       - run: cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --features tokio
       - run: cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --features smol
 

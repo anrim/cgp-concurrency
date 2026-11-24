@@ -26,5 +26,8 @@ cgp-concurrency-tokio = { workspace = true, optional = true }
 futures-util = { version = "0.3", default-features = false }
 pin-project-lite = "0.2"
 
+[dev-dependencies]
+futures-lite = "2.6"
+
 [lints]
 workspace = true

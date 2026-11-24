@@ -48,6 +48,9 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
 
 - [x] [`JoinHandlers`](crates/main/cgp-concurrency/src/join.rs) joins a fixed list of handlers in
   the caller's future. Branches may borrow local data and hold non-`Send` values across suspension.
+- [x] The [facade acceptance test](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) held both
+  branches pending, finished the second with an application error, and recovered both typed results
+  in declaration order. Both gates woke the caller on Tokio, on Smol, and with no runtime feature.
 - [x] Store one pending future or completed result per branch. With 1 KiB outputs at 4, 8, and 16
   branches, the [layout regression test](crates/tests/cgp-concurrency-tests/tests/typed_join_layout.rs)
   measured 4,160, 8,288, and 16,544 bytes, down from 10,480, 37,328, and 140,240 bytes
@@ -55,13 +58,14 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
 
 ### Release acceptance
 
-- [ ] Hold two branches pending together, then finish them in reverse order with one application
-  error. Return every result in declaration order, preserving each branch's type.
-- [ ] Hold three branches pending, complete them middle, last, then first, and recover two
-  distinct application errors and a value in declaration order.
-- [ ] Run a downstream CGP pipeline that consumes a borrowed label and a fallible port result,
-  exercising both valid and invalid input in the facade documentation.
-- [ ] Add the no-runtime join acceptance test to CI.
+- [x] The [three-branch scenario](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs)
+  held all branches pending, completed them middle, last, then first, and recovered two distinct
+  application errors and a borrowed value in declaration order on all three callers.
+- [x] The [facade doctest](crates/main/cgp-concurrency/README.md#join-typed-handlers) runs the join
+  inside `PipeHandlers`. The reporting handler recovers the borrowed label with both a valid and
+  an invalid port.
+- [x] The [CI test job](.github/workflows/tests.yml) includes the no-runtime join acceptance
+  command. It passed locally with both runtime features disabled.
 - [ ] Verify the shared gates, including the no-runtime test, on the reviewed pull request.
 
 ## v0.3.0 — Run handler branches as owned child tasks
