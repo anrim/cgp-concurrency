@@ -1,7 +1,7 @@
 # Release tasks
 
-**v0.1.0 release acceptance is complete.** Local and cross-thread tasks support cancellation,
-abort, and drain through the portable API on Tokio and Smol.
+**v0.2.0 typed-join acceptance is complete.** The facade joins borrowed handlers in the caller's
+future and returns every branch's typed result in declaration order.
 Each release runs its acceptance checks deterministically on Tokio and Smol and passes the shared
 [verification gates](CONTRIBUTING.md#verification). The [design](DESIGN.md) defines ownership,
 execution boundaries, and the bare-metal check required for a cross-target `no_std` claim.
@@ -64,9 +64,8 @@ execution boundaries, and the bare-metal check required for a cross-target `no_s
 - [x] The [facade doctest](crates/main/cgp-concurrency/README.md#join-typed-handlers) runs the join
   inside `PipeHandlers`. The reporting handler recovers the borrowed label with both a valid and
   an invalid port.
-- [x] The [CI test job](.github/workflows/tests.yml) includes the no-runtime join acceptance
-  command. It passed locally with both runtime features disabled.
-- [ ] Verify the shared gates, including the no-runtime test, on the reviewed pull request.
+- [x] The typed-join [PR checks](https://github.com/anrim/cgp-concurrency/pull/1/checks) cover
+  the no-runtime join, each provider separately, and the full workspace suite.
 
 ## v0.3.0 — Run handler branches as owned child tasks
 
