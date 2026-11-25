@@ -80,10 +80,10 @@ delegate_and_check_components! {
 }
 
 async fn wait_for_cleanup_start<T>(
-    parent: &impl CanSpawnHandlerTasks<ReadPair, Child, Inputs<T>, Outcomes = Outcomes<T>>,
+    parent: impl CanSpawnHandlerTasks<ReadPair, Child, Inputs<T>, Outcomes = Outcomes<T>>,
     inputs: Inputs<T>,
     cancel_wait: bool,
-) -> (impl Future<Output = Outcomes<T>>, Receiver<()>) {
+) -> (impl Future<Output = Outcomes<T>> + 'static, Receiver<()>) {
     let (waiting, started) = bounded(2);
     let (cleaning, cleaning_up) = bounded(2);
     let (publish, request) = bounded(1);
@@ -99,6 +99,8 @@ async fn wait_for_cleanup_start<T>(
         },
         inputs,
     );
+    // An owned group survives its parent even when the caller knows only the consumer trait.
+    drop(parent);
     for _ in 0..2 {
         started.recv().await.unwrap();
     }
@@ -126,7 +128,7 @@ where
         runtime,
         branches: PhantomData::<Spawner>,
     };
-    let (drain, cleaning_up) = wait_for_cleanup_start(&parent, inputs, true).await;
+    let (drain, cleaning_up) = wait_for_cleanup_start(parent, inputs, true).await;
     finish_second.try_send(()).unwrap();
     finish_second.closed().await;
     assert_eq!(
@@ -162,7 +164,7 @@ where
         runtime,
         branches: PhantomData::<Spawner>,
     };
-    let (drain, cleaning_up) = wait_for_cleanup_start(&parent, inputs, cancel_wait).await;
+    let (drain, cleaning_up) = wait_for_cleanup_start(parent, inputs, cancel_wait).await;
     {
         let mut drain = pin!(drain);
         // Only the first child can finish and wake this join. Repoll to retain its result.

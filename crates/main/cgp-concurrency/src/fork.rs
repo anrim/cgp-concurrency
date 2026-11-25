@@ -7,10 +7,10 @@ use cgp::prelude::*;
 use cgp_handler::Handler;
 use pin_project_lite::pin_project;
 
-use crate::join::{BranchList, TaskBranches, join_branches};
+use crate::join::{BranchList, JoinBranches, TaskBranches, join_branches};
 use crate::runtime::{
     CanSpawnLocalTask, CanSpawnTask, CancellationToken, HasRuntime, HasRuntimeType,
-    LocalTaskSpawnerComponent, TaskHandle, TaskOutcome, TaskResult, TaskSpawnerComponent, discard,
+    LocalTaskSpawnerComponent, TaskHandle, TaskResult, TaskSpawnerComponent, discard,
 };
 
 /// Spawns one owned task per configured handler and returns the group immediately.
@@ -24,13 +24,16 @@ pub trait CanSpawnHandlerTasks<Code, Child, Inputs> {
     /// Product of terminal task outcomes in handler declaration order.
     type Outcomes;
 
+    /// The owned join future can outlive the parent and its runtime borrow.
+    type Join: Future<Output = Self::Outcomes> + 'static;
+
     /// Submits every handler before returning. The group can outlive this borrow of the parent.
     fn spawn(
         &self,
         code: PhantomData<Code>,
         child: Child,
         inputs: Inputs,
-    ) -> HandlerTasks<impl Future<Output = Self::Outcomes> + 'static>;
+    ) -> HandlerTasks<Self::Join>;
 }
 
 /// Starts a group with its own cooperative cancellation token, using the configured spawner.
@@ -43,7 +46,7 @@ pub trait CanSpawnCancellableHandlerTasks<Code, Child, Inputs>:
         code: PhantomData<Code>,
         make_child: impl FnOnce(CancellationToken) -> Child,
         inputs: Inputs,
-    ) -> HandlerTasks<impl Future<Output = Self::Outcomes> + 'static, CancellationToken> {
+    ) -> HandlerTasks<Self::Join, CancellationToken> {
         let token = CancellationToken::new();
         let tasks = self.spawn(code, make_child(token.clone()), inputs);
         HandlerTasks {
@@ -61,7 +64,7 @@ impl<App: ?Sized, Code, Child, Inputs> CanSpawnCancellableHandlerTasks<Code, Chi
 pin_project! {
     /// Owns the children of one submission. Both `tasks.join().await` and `tasks.await`
     /// wait for every child and yield their outcomes in declaration order. Application
-    /// errors are retained inside [`TaskOutcome::Completed`].
+    /// errors are retained inside [`TaskOutcome::Completed`](crate::runtime::TaskOutcome::Completed).
     ///
     /// Groups created with [`CanSpawnCancellableHandlerTasks::spawn_cancellable`] also support
     /// [`cancel`](Self::cancel) to request cooperative cancellation and drain every child.
@@ -136,18 +139,21 @@ pub trait SendHandler<App: HasErrorType, Code, Input>: Handler<App, Code, Input>
 #[cgp_impl(SpawnHandlers<Handlers, Spawner>)]
 #[uses(HasRuntime)]
 #[use_type(HasRuntimeType.Runtime)]
-impl<Handlers, Spawner, Child, Code, Inputs, Outcomes> HandlerTaskSpawner<Code, Child, Inputs>
+impl<Handlers, Spawner, Child, Code, Inputs, Outcomes, Tasks>
+    HandlerTaskSpawner<Code, Child, Inputs>
 where
-    Handlers: SpawnList<Spawner, Runtime, Child, Code, Inputs, Output = Outcomes>,
+    Handlers: SpawnList<Spawner, Runtime, Child, Code, Inputs, Tasks = Tasks>,
+    Tasks: BranchList<Output = Outcomes> + 'static,
 {
     type Outcomes = Outcomes;
+    type Join = JoinBranches<Tasks>;
 
     fn spawn(
         &self,
         code: PhantomData<Code>,
         child: Child,
         inputs: Inputs,
-    ) -> HandlerTasks<impl Future<Output = Outcomes> + 'static> {
+    ) -> HandlerTasks<Self::Join> {
         let tasks = Handlers::spawn(self.runtime(), child, code, inputs);
         HandlerTasks::new(join_branches(tasks))
     }
@@ -215,13 +221,9 @@ where
 
 trait SpawnBranch<R, Child, Code, H, Input> {
     type Value: 'static;
+    type Handle: TaskHandle<Self::Value> + 'static;
 
-    fn spawn(
-        runtime: &R,
-        child: Child,
-        code: PhantomData<Code>,
-        input: Input,
-    ) -> impl TaskHandle<Self::Value> + 'static;
+    fn spawn(runtime: &R, child: Child, code: PhantomData<Code>, input: Input) -> Self::Handle;
 }
 
 impl<R, Child, Code, H, Input> SpawnBranch<R, Child, Code, H, Input> for LocalTaskSpawnerComponent
@@ -234,13 +236,9 @@ where
     Child::Error: 'static,
 {
     type Value = Result<H::Output, Child::Error>;
+    type Handle = R::LocalJoinHandle<Self::Value>;
 
-    fn spawn(
-        runtime: &R,
-        child: Child,
-        _: PhantomData<Code>,
-        input: Input,
-    ) -> impl TaskHandle<Self::Value> + 'static {
+    fn spawn(runtime: &R, child: Child, _: PhantomData<Code>, input: Input) -> Self::Handle {
         runtime.spawn_local_task(local_handler_task::<H, Code, _, _>(child, input))
     }
 }
@@ -255,37 +253,23 @@ where
     Child::Error: Send + 'static,
 {
     type Value = Result<H::Output, Child::Error>;
+    type Handle = R::JoinHandle<Self::Value>;
 
-    fn spawn(
-        runtime: &R,
-        child: Child,
-        _: PhantomData<Code>,
-        input: Input,
-    ) -> impl TaskHandle<Self::Value> + 'static {
+    fn spawn(runtime: &R, child: Child, _: PhantomData<Code>, input: Input) -> Self::Handle {
         runtime.spawn_task(worker_handler_task::<H, Code, _, _>(child, input))
     }
 }
 
 trait SpawnList<Spawner, R, Child, Code, Inputs> {
-    type Output;
+    type Tasks: BranchList + 'static;
 
-    fn spawn(
-        runtime: &R,
-        child: Child,
-        code: PhantomData<Code>,
-        inputs: Inputs,
-    ) -> impl BranchList<Output = Self::Output> + 'static;
+    fn spawn(runtime: &R, child: Child, code: PhantomData<Code>, inputs: Inputs) -> Self::Tasks;
 }
 
 impl<Spawner, R, Child, Code> SpawnList<Spawner, R, Child, Code, Nil> for Nil {
-    type Output = Nil;
+    type Tasks = Nil;
 
-    fn spawn(
-        _: &R,
-        _: Child,
-        _: PhantomData<Code>,
-        _: Nil,
-    ) -> impl BranchList<Output = Nil> + 'static {
+    fn spawn(_: &R, _: Child, _: PhantomData<Code>, _: Nil) -> Self::Tasks {
         Nil
     }
 }
@@ -297,14 +281,14 @@ where
     Spawner: SpawnBranch<R, Child, Code, Head, Input>,
     Tail: SpawnList<Spawner, R, Child, Code, Inputs>,
 {
-    type Output = Cons<TaskOutcome<Spawner::Value>, Tail::Output>;
+    type Tasks = TaskBranches<Spawner::Handle, Tail::Tasks>;
 
     fn spawn(
         runtime: &R,
         child: Child,
         code: PhantomData<Code>,
         inputs: Cons<Input, Inputs>,
-    ) -> impl BranchList<Output = Self::Output> + 'static {
+    ) -> Self::Tasks {
         let head = Spawner::spawn(runtime, child.clone(), code, inputs.0);
         TaskBranches::new(head, Tail::spawn(runtime, child, code, inputs.1))
     }

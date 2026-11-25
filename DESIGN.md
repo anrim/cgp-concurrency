@@ -102,7 +102,8 @@ of the token. Calling `tasks.cancel()` signals it immediately and returns the jo
 Handlers can observe the request, perform async cleanup, and return their application results.
 The join waits for every child even if a handler ignores the request. Dropping a pending
 cancellation wait releases retained outcomes and requests abort for every unfinished child,
-even during cleanup.
+even during cleanup. The spawner's `Join` associated type lets a generic caller return
+the owned wait after dropping the parent.
 
 ### Infrastructure and application outcomes remain separate
 

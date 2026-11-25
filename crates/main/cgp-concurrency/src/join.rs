@@ -84,18 +84,18 @@ pub(crate) trait BranchList {
 }
 
 pin_project! {
-    struct JoinBranches<B> {
+    pub struct JoinBranches<B> {
         #[pin]
         branches: B,
     }
 }
 
-pub(crate) fn join_branches<B: BranchList>(branches: B) -> impl Future<Output = B::Output> {
+pub(crate) fn join_branches<B: BranchList>(branches: B) -> JoinBranches<B> {
     JoinBranches { branches }
 }
 
-impl<B: BranchList> Future for JoinBranches<B> {
-    type Output = B::Output;
+impl<B: BranchList<Output = Outputs>, Outputs> Future for JoinBranches<B> {
+    type Output = Outputs;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut branches = self.project().branches;
@@ -120,7 +120,7 @@ impl BranchList for Nil {
 }
 
 pin_project! {
-    pub(crate) struct Branches<Head: Future, Tail> {
+    pub struct Branches<Head: Future, Tail> {
         #[pin]
         head: MaybeDone<Head>,
         #[pin]

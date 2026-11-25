@@ -210,6 +210,9 @@ finish async cleanup, and return their results. The wait includes children that 
 the request. Dropping the pending wait releases retained outcomes and requests abort for
 unfinished children, including those still running cleanup.
 
+A generic caller can return the cancellation wait as `P::Join` when the parent type
+`P` implements `CanSpawnHandlerTasks`. The caller can drop the parent immediately after spawning.
+
 To signal several groups together, pass clones of one `CancellationToken` through
 `spawn`, call `request_cancel()`, and join each group.
 

@@ -26,7 +26,7 @@
 - [x] [Preserve sibling outcomes when a child panics](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs).
 - [x] [Cancel and drain a handler group](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs).
 - [x] [Reclaim children and retained results when a pending cancellation wait is dropped](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs).
-- [ ] Return an owned join that can outlive its parent.
+- [x] [Return an owned join](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs) that can outlive its parent.
 - [ ] Benchmark spawn and join for one and eight handlers on both runtimes and executor types.
 - [ ] Document the public API in the crate guides and provide a runnable fork/join example.
 - [ ] Implement `parent.try_spawn(...)` and abort and drain accepted children on refusal.
