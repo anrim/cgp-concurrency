@@ -91,14 +91,18 @@ child owns an input and a clone of the child context. Worker handlers recover th
 releases the original child context, and returns a `HandlerTasks` group. The executor can run
 the children as soon as they are submitted. Both `tasks.join().await` and `tasks.await` return one
 `TaskOutcome<Result<Output, Error>>` per branch in declaration order. Dropping the group
-or an unfinished join releases the handles under their abort-on-drop contract. Each branch finishes its handler and releases its context clone before reporting
+or an unfinished join releases the handles under their abort-on-drop contract. On native
+runtimes with unwinding enabled, the group guards each retained outcome until it returns the
+whole product. Each branch finishes its handler and releases its context clone before reporting
 the first panic from the handler or cleanup.
 
 For cooperative cancellation, `spawn_cancellable` gives the child-context constructor a fresh
 `CancellationToken` and uses the same configured spawner. The returned group owns a clone
 of the token. Calling `tasks.cancel()` signals it immediately and returns the join future.
 Handlers can observe the request, perform async cleanup, and return their application results.
-The join waits for every child even if a handler ignores the request.
+The join waits for every child even if a handler ignores the request. Dropping a pending
+cancellation wait releases retained outcomes and requests abort for every unfinished child,
+even during cleanup.
 
 ### Infrastructure and application outcomes remain separate
 

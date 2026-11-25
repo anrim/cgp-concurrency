@@ -7,7 +7,7 @@ use cgp::prelude::*;
 use cgp_handler::Handler;
 use pin_project_lite::pin_project;
 
-use crate::join::{BranchList, Branches, join_branches};
+use crate::join::{BranchList, TaskBranches, join_branches};
 use crate::runtime::{
     CanSpawnLocalTask, CanSpawnTask, CancellationToken, HasRuntime, HasRuntimeType,
     LocalTaskSpawnerComponent, TaskHandle, TaskOutcome, TaskResult, TaskSpawnerComponent, discard,
@@ -96,7 +96,7 @@ impl<F: Future, C> HandlerTasks<F, C> {
 impl<F: Future> HandlerTasks<F, CancellationToken> {
     /// Immediately signals this group's children. Await the returned join future to wait for
     /// cleanup and collect all outcomes, including results from children that keep working.
-    /// Dropping the pending future requests abort through the owned task handles.
+    /// Dropping the pending future releases retained outcomes and requests abort for unfinished children.
     pub fn cancel(self) -> F {
         self.cancellation.request_cancel();
         self.join
@@ -306,6 +306,6 @@ where
         inputs: Cons<Input, Inputs>,
     ) -> impl BranchList<Output = Self::Output> + 'static {
         let head = Spawner::spawn(runtime, child.clone(), code, inputs.0);
-        Branches::new(head, Tail::spawn(runtime, child, code, inputs.1))
+        TaskBranches::new(head, Tail::spawn(runtime, child, code, inputs.1))
     }
 }

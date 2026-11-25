@@ -9,6 +9,8 @@ extern crate cgp_core as cgp;
 mod cancellation;
 #[path = "support/executors.rs"]
 mod executors;
+#[path = "support/join_notification.rs"]
+mod join_notification;
 #[path = "fork_handlers/panic.rs"]
 mod panic;
 

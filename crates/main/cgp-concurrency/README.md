@@ -207,7 +207,8 @@ let outcomes = tasks.cancel().await;
 
 `cancel()` immediately signals the group's token. Handlers can await `cancel.cancelled()`,
 finish async cleanup, and return their results. The wait includes children that ignore
-the request. Dropping the pending wait requests abort.
+the request. Dropping the pending wait releases retained outcomes and requests abort for
+unfinished children, including those still running cleanup.
 
 To signal several groups together, pass clones of one `CancellationToken` through
 `spawn`, call `request_cancel()`, and join each group.

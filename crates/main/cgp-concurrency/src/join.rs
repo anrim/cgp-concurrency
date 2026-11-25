@@ -153,3 +153,39 @@ impl<Head: Future, Tail: BranchList> BranchList for Branches<Head, Tail> {
         Cons(head, branches.tail.take_outputs())
     }
 }
+
+// A fork owns a completed task outcome until the entire product is handed to the caller.
+pin_project! {
+    pub struct TaskBranches<Head: Future, Tail> {
+        #[pin]
+        inner: Branches<Head, Tail>,
+    }
+
+    impl<Head: Future, Tail> PinnedDrop for TaskBranches<Head, Tail> {
+        fn drop(this: Pin<&mut Self>) {
+            if let Some(outcome) = this.project().inner.project().head.take_output() {
+                crate::runtime::discard(outcome);
+            }
+        }
+    }
+}
+
+impl<Head: Future, Tail> TaskBranches<Head, Tail> {
+    pub(crate) fn new(head: Head, tail: Tail) -> Self {
+        Self {
+            inner: Branches::new(head, tail),
+        }
+    }
+}
+
+impl<Head: Future, Tail: BranchList> BranchList for TaskBranches<Head, Tail> {
+    type Output = Cons<Head::Output, Tail::Output>;
+
+    fn poll_all(self: Pin<&mut Self>, cx: &mut Context<'_>) -> bool {
+        self.project().inner.poll_all(cx)
+    }
+
+    fn take_outputs(self: Pin<&mut Self>) -> Self::Output {
+        self.project().inner.take_outputs()
+    }
+}

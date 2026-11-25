@@ -64,7 +64,10 @@ cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_h
 Run just the [cancellation tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs)
 with the filter below. Both children observe `tasks.cancel()` before the caller polls its
 returned future. The second finishes first, and the caller waits for the first child's
-cleanup before receiving both results in declaration order.
+cleanup before receiving both results in declaration order. The drop tests let one child
+return a value whose destructor signals and panics, and hold its sibling at a cleanup gate.
+After a join or cancellation wait retains that value and returns `Pending`, the caller drops
+the wait. The tests observe the value's destruction and the sibling's reclamation with the gate shut.
 
 ```sh
 cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_handlers -E 'test(cancellation::)'
