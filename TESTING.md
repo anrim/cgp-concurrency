@@ -51,13 +51,23 @@ cargo test --locked -p cgp-concurrency --doc
 
 Run the [fork handler tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs)
 on both runtimes. Each exercises `SpawnLocalTasks` and `SpawnWorkerTasks`, including moving
-the worker group to another thread to await its outcomes.
+two worker groups to another thread. Cancelling one group leaves the other group's token
+clear, and workers that ignore the request return their application results.
 The panic tests exercise a handler whose future panics during both polling and destruction.
 A context clone also panics on drop. The group reports the first panic, checks that the destructors
 ran outside an active unwind, and still collects the sibling's result.
 
 ```sh
 cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_handlers
+```
+
+Run just the [cancellation tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs)
+with the filter below. Both children observe `tasks.cancel()` before the caller polls its
+returned future. The second finishes first, and the caller waits for the first child's
+cleanup before receiving both results in declaration order.
+
+```sh
+cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_handlers -E 'test(cancellation::)'
 ```
 
 ## Task ownership tests
@@ -102,7 +112,6 @@ of events explicitly so it also works when nextest runs a single test at a time.
 
 | Operation | How the test drives it | What must hold |
 | --- | --- | --- |
-| Cancel and drain a group (v0.3) | Let the local or worker children start on each runtime. Request group cancellation and hold one child's cleanup at a gate. | The wait stays pending until the gate opens and all children terminate. |
 | Partial submission (v0.3) | Exercise fallible submission on both runtimes and both providers. Cancel before the first branch, then in a separate run refuse a later branch after a child starts. Record submission attempts and child destruction. | The first case starts zero children. In the second, submission stops at the refusal and all accepted children are aborted and drained before the error returns. |
 | Bounded map (v0.4) | Set the limit to two and hold both active items at gates. Check the third has not started, then release the second and wait for the third to start while the first is still pending. Count active handlers and record the peak. | The peak is exactly two. Results, including item errors, follow input order. Empty input starts no handlers and a zero limit is rejected before any handler starts. |
 

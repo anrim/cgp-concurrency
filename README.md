@@ -8,9 +8,10 @@ let tasks = parent.spawn(code, child, inputs);
 let product![first, second] = tasks.join().await;
 ```
 
-`spawn` submits one owned task per handler to the configured local or worker executor. The parent
-can do other work before joining. Both `tasks.join().await` and `tasks.await` collect the
-outcomes in declaration order. [Fork handlers example](crates/main/cgp-concurrency/README.md#fork-handlers)
+`spawn` submits one owned task per handler on the configured local or worker executor.
+The parent can keep working, then join to collect every outcome in declaration order.
+For cooperative shutdown, use `spawn_cancellable` and call `tasks.cancel().await`.
+[Fork handlers](crates/main/cgp-concurrency/README.md#fork-handlers) · [Cancel a group](crates/main/cgp-concurrency/README.md#cancel-and-drain-a-group)
 
 ## Scope
 

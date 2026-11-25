@@ -190,6 +190,28 @@ Application errors are preserved inside `TaskOutcome::Completed(Err(error))`.
 Dropping an unjoined group or a pending join requests abortion through its owned handles.
 The executor reclaims the children as it runs.
 
+### Cancel and drain a group
+
+```rust
+# extern crate cgp_core as cgp;
+# use cgp::prelude::*;
+# use cgp_concurrency::prelude::*;
+# #[derive(Clone)]
+# struct Child { cancel: CancellationToken }
+# async fn stop<Code, Inputs>(parent: &impl CanSpawnHandlerTasks<Code, Child, Inputs>,
+#                             code: PhantomData<Code>, inputs: Inputs) {
+let tasks = parent.spawn_cancellable(code, |cancel| Child { cancel }, inputs);
+let outcomes = tasks.cancel().await;
+# }
+```
+
+`cancel()` immediately signals the group's token. Handlers can await `cancel.cancelled()`,
+finish async cleanup, and return their results. The wait includes children that ignore
+the request. Dropping the pending wait requests abort.
+
+To signal several groups together, pass clones of one `CancellationToken` through
+`spawn`, call `request_cancel()`, and join each group.
+
 ## Spawn owned tasks
 
 To start work now and join later, keep the handles returned by the runtime. Both children can

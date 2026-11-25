@@ -9,6 +9,8 @@ All notable changes to this project are documented here.
   typed outcome per handler in declaration order. If a child panics with unwinding enabled,
   the group waits for its siblings and reports `TaskOutcome::Panicked` in that child's slot.
   Dropping the group or a pending join requests abort for its pending children. [Fork handlers example](crates/main/cgp-concurrency/README.md#fork-handlers)
+- `spawn_cancellable` supplies a fresh cancellation token to the child context.
+  `tasks.cancel().await` signals the group and collects every child's outcome after cleanup. [Cancel and drain a group](crates/main/cgp-concurrency/README.md#cancel-and-drain-a-group)
 
 ## v0.2.0
 

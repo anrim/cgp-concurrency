@@ -94,6 +94,12 @@ the children as soon as they are submitted. Both `tasks.join().await` and `tasks
 or an unfinished join releases the handles under their abort-on-drop contract. Each branch finishes its handler and releases its context clone before reporting
 the first panic from the handler or cleanup.
 
+For cooperative cancellation, `spawn_cancellable` gives the child-context constructor a fresh
+`CancellationToken` and uses the same configured spawner. The returned group owns a clone
+of the token. Calling `tasks.cancel()` signals it immediately and returns the join future.
+Handlers can observe the request, perform async cleanup, and return their application results.
+The join waits for every child even if a handler ignores the request.
+
 ### Infrastructure and application outcomes remain separate
 
 The portable task outcome has four variants.

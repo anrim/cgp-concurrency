@@ -5,9 +5,10 @@
 
 extern crate cgp_core as cgp;
 
+#[path = "fork_handlers/cancellation.rs"]
+mod cancellation;
 #[path = "support/executors.rs"]
 mod executors;
-
 #[path = "fork_handlers/panic.rs"]
 mod panic;
 
@@ -106,14 +107,12 @@ impl Handler<ReadPair, Record> {
     }
 }
 
-type WorkerChild = Child<Cell<u32>>;
-
-impl SendHandler<WorkerChild, ReadPair, Gate> for ReadValue {
+impl<T: Clone + Send> SendHandler<Child<T>, ReadPair, Gate> for ReadValue {
     fn handle_send(
-        child: &WorkerChild,
+        child: &Child<T>,
         code: PhantomData<ReadPair>,
         gate: Gate,
-    ) -> impl Future<Output = Result<Cell<u32>, Rejected>> + Send {
+    ) -> impl Future<Output = Result<T, Rejected>> + Send {
         Self::handle(child, code, gate)
     }
 }
@@ -182,22 +181,27 @@ where
     }
     second.try_send(()).unwrap();
     second.closed().await;
-    let mut joined = pin!(tasks.join());
-    let mut release_first = Some(first);
-    let product![first, second] = poll_fn(|cx| {
-        let state = joined.as_mut().poll(cx);
-        if let Some(release) = release_first.take() {
-            assert!(state.is_pending());
-            release.try_send(()).unwrap();
-        }
-        state
-    })
-    .await;
+    let product![first, second] = join_after_pending(tasks.join(), &first).await;
     assert_eq!(second, TaskOutcome::Completed(Err(Rejected(17))));
     match first {
         TaskOutcome::Completed(Ok(value)) => value,
         _ => panic!("first child did not return its value"),
     }
+}
+
+// Open the last gate after the join registers its waker, then let the executor repoll it.
+async fn join_after_pending<F: Future>(join: F, release: &Sender<()>) -> F::Output {
+    let mut joined = pin!(join);
+    let mut gate = Some(release);
+    poll_fn(|cx| {
+        let state = joined.as_mut().poll(cx);
+        if let Some(gate) = gate.take() {
+            assert!(state.is_pending());
+            gate.try_send(()).unwrap();
+        }
+        state
+    })
+    .await
 }
 
 async fn child_panic_preserves_sibling<T, P>(parent: &P, value: T)
@@ -317,34 +321,43 @@ async fn worker(runtime: impl CanSpawnTask) {
     type Pending = SpawnWorkerTasks<Product![RejectRecord, RejectRecord]>;
     drop_pending::<_, Pending>(&parent).await;
 
-    // Move the group out of the parent and join its worker tasks on another thread.
-    let (start, _started) = bounded(2);
-    let (release, blocked) = bounded(2);
+    // Move both groups out of the parent. The workers ignore cooperative requests.
+    let (start, _started) = bounded(4);
+    let (release, blocked) = bounded(4);
     let gate = Gate {
         start,
         release: blocked,
     };
     let inputs = product![gate.clone(), (gate, Cell::new(7))];
-    let tasks = parent.spawn(
-        PhantomData::<ReadPair>,
-        Child {
-            value: Cell::new(3),
-        },
-        inputs,
-    );
+    let spawn = || {
+        parent.spawn_cancellable(
+            PhantomData::<ReadPair>,
+            |token| Child {
+                value: (Cell::new(3), token),
+            },
+            inputs.clone(),
+        )
+    };
+    let cancelled = spawn();
+    let joined = spawn();
     drop(parent);
-    release.try_send(()).unwrap();
-    release.try_send(()).unwrap();
-    let results = thread::spawn(move || future::block_on(tasks))
-        .join()
-        .unwrap();
-    assert_eq!(
-        results,
-        product![
-            TaskOutcome::Completed(Ok(Cell::new(3))),
-            TaskOutcome::Completed(Err(Rejected(7)))
-        ]
-    );
+    let (cancelled, joined) = thread::spawn(move || {
+        let drain = cancelled.cancel();
+        for _ in 0..4 {
+            release.try_send(()).unwrap();
+        }
+        future::block_on(future::zip(drain, joined))
+    })
+    .join()
+    .unwrap();
+    for (product![first, second], requested) in [(cancelled, true), (joined, false)] {
+        let TaskOutcome::Completed(Ok((value, token))) = first else {
+            panic!("worker did not return its value and group token");
+        };
+        assert_eq!(value.get(), 3);
+        assert_eq!(token.is_cancelled(), requested);
+        assert_eq!(second, TaskOutcome::Completed(Err(Rejected(7))));
+    }
 }
 
 #[cfg(feature = "tokio")]

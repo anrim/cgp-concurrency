@@ -9,8 +9,8 @@ use pin_project_lite::pin_project;
 
 use crate::join::{BranchList, Branches, join_branches};
 use crate::runtime::{
-    CanSpawnLocalTask, CanSpawnTask, HasRuntime, HasRuntimeType, LocalTaskSpawnerComponent,
-    TaskHandle, TaskOutcome, TaskResult, TaskSpawnerComponent, discard,
+    CanSpawnLocalTask, CanSpawnTask, CancellationToken, HasRuntime, HasRuntimeType,
+    LocalTaskSpawnerComponent, TaskHandle, TaskOutcome, TaskResult, TaskSpawnerComponent, discard,
 };
 
 /// Spawns one owned task per configured handler and returns the group immediately.
@@ -33,33 +33,77 @@ pub trait CanSpawnHandlerTasks<Code, Child, Inputs> {
     ) -> HandlerTasks<impl Future<Output = Self::Outcomes> + 'static>;
 }
 
+/// Starts a group with its own cooperative cancellation token, using the configured spawner.
+pub trait CanSpawnCancellableHandlerTasks<Code, Child, Inputs>:
+    CanSpawnHandlerTasks<Code, Child, Inputs>
+{
+    /// Builds the child context with a fresh token and submits the tasks before returning.
+    fn spawn_cancellable(
+        &self,
+        code: PhantomData<Code>,
+        make_child: impl FnOnce(CancellationToken) -> Child,
+        inputs: Inputs,
+    ) -> HandlerTasks<impl Future<Output = Self::Outcomes> + 'static, CancellationToken> {
+        let token = CancellationToken::new();
+        let tasks = self.spawn(code, make_child(token.clone()), inputs);
+        HandlerTasks {
+            join: tasks.join(),
+            cancellation: token,
+        }
+    }
+}
+
+impl<App: ?Sized, Code, Child, Inputs> CanSpawnCancellableHandlerTasks<Code, Child, Inputs> for App where
+    App: CanSpawnHandlerTasks<Code, Child, Inputs>
+{
+}
+
 pin_project! {
     /// Owns the children of one submission. Both `tasks.join().await` and `tasks.await`
     /// wait for every child and yield their outcomes in declaration order. Application
     /// errors are retained inside [`TaskOutcome::Completed`].
     ///
+    /// Groups created with [`CanSpawnCancellableHandlerTasks::spawn_cancellable`] also support
+    /// [`cancel`](Self::cancel) to request cooperative cancellation and drain every child.
+    ///
     /// Dropping the group or a pending join drops the owned handles and any retained outcomes.
     /// Dropping a pending handle requests abortion. Reclamation requires executor progress.
     #[must_use = "dropping the group requests abortion of its pending children"]
-    pub struct HandlerTasks<F> {
+    pub struct HandlerTasks<F, C = ()> {
         #[pin]
         join: F,
+        cancellation: C,
     }
 }
 
 impl<F: Future> HandlerTasks<F> {
     /// Wraps a join future that owns the already-submitted tasks.
     pub fn new(join: F) -> Self {
-        Self { join }
+        Self {
+            join,
+            cancellation: (),
+        }
     }
+}
 
+impl<F: Future, C> HandlerTasks<F, C> {
     /// Returns a future that waits for every child and yields their outcomes in declaration order.
     pub fn join(self) -> F {
         self.join
     }
 }
 
-impl<F: Future> Future for HandlerTasks<F> {
+impl<F: Future> HandlerTasks<F, CancellationToken> {
+    /// Immediately signals this group's children. Await the returned join future to wait for
+    /// cleanup and collect all outcomes, including results from children that keep working.
+    /// Dropping the pending future requests abort through the owned task handles.
+    pub fn cancel(self) -> F {
+        self.cancellation.request_cancel();
+        self.join
+    }
+}
+
+impl<F: Future, C> Future for HandlerTasks<F, C> {
     type Output = F::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
