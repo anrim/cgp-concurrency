@@ -118,6 +118,11 @@ impl<F: Future, C> Future for HandlerTasks<F, C> {
 pub type SpawnLocalTasks<Handlers> = SpawnHandlers<Handlers, LocalTaskSpawnerComponent>;
 
 /// Spawns every handler in a product on the worker executor using its [`SendHandler`] impl.
+#[cfg_attr(feature = "smol", doc = concat!(
+    "\n## Fork and join two Smol worker tasks\n\n```rust\n",
+    include_str!("../examples/fork_handlers.rs"),
+    "```",
+))]
 pub type SpawnWorkerTasks<Handlers> = SpawnHandlers<Handlers, TaskSpawnerComponent>;
 
 pub struct SpawnHandlers<Handlers, Spawner>(PhantomData<(Handlers, Spawner)>);

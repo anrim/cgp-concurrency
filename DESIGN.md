@@ -105,6 +105,13 @@ cancellation wait releases retained outcomes and requests abort for every unfini
 even during cleanup. The spawner's `Join` associated type lets a generic caller return
 the owned wait after dropping the parent.
 
+### Fork and join at the call site
+
+The Smol-inspired fork API puts these goals into practice. `parent.spawn(code, child, inputs)`
+submits work and returns the group that owns it. `tasks.join().await` shows where the caller
+waits. Provider wiring selects local or worker execution, so both use the same call site.
+[Runnable example](crates/main/cgp-concurrency/examples/fork_handlers.rs)
+
 ### Infrastructure and application outcomes remain separate
 
 The portable task outcome has four variants.

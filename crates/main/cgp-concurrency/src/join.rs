@@ -23,6 +23,82 @@ use pin_project_lite::pin_project;
 ///
 /// Dropping the join drops pending branches and any retained results. A branch panic unwinds
 /// through the caller when unwinding is enabled.
+///
+/// ## Compose a join with a reporting handler
+///
+/// The reporting handler keeps the borrowed label even when parsing the port fails.
+///
+/// ```rust
+/// extern crate cgp_core as cgp;
+///
+/// use core::num::ParseIntError;
+/// use cgp::prelude::*;
+/// use cgp_concurrency::prelude::JoinHandlers;
+/// use cgp_handler::{CanHandle, Handler, HandlerComponent, PipeHandlers, Promote, ReturnInput};
+///
+/// struct App;
+/// impl HasErrorType for App {
+///     type Error = ParseIntError;
+/// }
+///
+/// #[cgp_impl(new ParsePort)]
+/// #[use_type(HasErrorType.Error = ParseIntError)]
+/// impl<'a> Handler<(), &'a str> {
+///     type Output = u16;
+///
+///     async fn handle(&self, _: PhantomData<()>, port: &'a str) -> Result<u16, Error> {
+///         port.parse()
+///     }
+/// }
+///
+/// type Joined<'a> = Product![Result<&'a str, ParseIntError>, Result<u16, ParseIntError>];
+///
+/// #[cgp_impl(new MakeReport)]
+/// #[use_type(HasErrorType.Error = ParseIntError)]
+/// impl<'a> Handler<(), Joined<'a>> {
+///     type Output = (&'a str, Option<u16>);
+///
+///     async fn handle(&self, _: PhantomData<()>, results: Joined<'a>) -> Result<Self::Output, Error> {
+///         let product![label, port] = results;
+///         Ok((label?, port.ok()))
+///     }
+/// }
+///
+/// type ReadEndpoint = JoinHandlers<Product![ReturnInput, ParsePort]>;
+///
+/// delegate_and_check_components! {
+///     App {
+///         #[check_params(((), Product![&'static str, &'static str]))]
+///         HandlerComponent: PipeHandlers<Product![Promote<ReadEndpoint>, MakeReport]>,
+///     }
+/// }
+///
+/// futures_lite::future::block_on(async {
+///     let label = String::from("server");
+///     for (port, expected) in [("443", Some(443)), ("invalid", None)] {
+///         let inputs = product![label.as_str(), port];
+///         let report = App.handle(PhantomData::<()>, inputs).await.unwrap();
+///         assert_eq!(report, (label.as_str(), expected));
+///     }
+/// });
+/// ```
+///
+/// ## Input arity
+///
+/// A join with one handler rejects an input product with two elements.
+///
+/// ```compile_fail
+/// extern crate cgp_core as cgp;
+///
+/// use cgp::prelude::*;
+/// use cgp_concurrency::JoinHandlers;
+/// use cgp_handler::{AsyncComputer, ReturnInput};
+///
+/// async fn surplus_input(app: &impl HasErrorType) {
+///     type One = JoinHandlers<Product![ReturnInput]>;
+///     One::compute_async(app, PhantomData::<()>, product![42_u8, true]).await;
+/// }
+/// ```
 pub struct JoinHandlers<Handlers>(PhantomData<Handlers>);
 
 #[cgp_impl(JoinHandlers<Handlers>)]

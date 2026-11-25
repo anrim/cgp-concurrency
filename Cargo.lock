@@ -260,6 +260,7 @@ version = "0.2.0"
 dependencies = [
  "async-executor",
  "cgp-concurrency-runtime",
+ "cgp-core",
  "smol",
 ]
 
@@ -284,6 +285,7 @@ name = "cgp-concurrency-tokio"
 version = "0.2.0"
 dependencies = [
  "cgp-concurrency-runtime",
+ "cgp-core",
  "tokio",
 ]
 

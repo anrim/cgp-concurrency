@@ -8,57 +8,62 @@ let tasks = parent.spawn(code, child, inputs);
 let product![first, second] = tasks.join().await;
 ```
 
-`spawn` submits one owned task per handler on the configured local or worker executor.
-The parent can keep working, then join to collect every outcome in declaration order.
-For cooperative shutdown, use `spawn_cancellable` and call `tasks.cancel().await`.
-[Fork handlers](crates/main/cgp-concurrency/README.md#fork-handlers) · [Cancel a group](crates/main/cgp-concurrency/README.md#cancel-and-drain-a-group)
+[Installation](#installation) · [Usage](#usage) · [Workspace](#workspace) · [Documentation](#documentation) · [Contributing](#contributing) · [License](#license)
 
-## Scope
+## Installation
 
-CGP's published `cgp-runtime` supplies runtime selection. This workspace defines the portable
-task contract and implements it for Tokio and Smol. The facade's `JoinHandlers` polls borrowed
-handlers in the caller's task and works with both runtime features disabled. [Caller-task join example](crates/main/cgp-concurrency/README.md#join-typed-handlers)
+This checkout targets Rust 1.89 or later and CGP v0.8.0. From an application next to the
+`cgp-concurrency` checkout, add the facade with your preferred runtime feature.
 
-For individual futures, `CanSpawnLocalTask` supports an `Rc` held across an await.
-`CanSpawnTask` submits owned `Send` work to a worker runtime. Both operations return
-an owned handle for cancellation, abort, and drain.
+```sh
+cargo add --path ../cgp-concurrency/crates/main/cgp-concurrency --features smol
+```
 
-The facade has no default runtime, does not expose runtime-specific types in portable APIs, and does
-not provide detached tasks.
+Use `tokio` for the Tokio adapter. You can enable both features, or omit `--features`
+for caller-driven joins.
+
+## Usage
+
+Run the [fork and join example](crates/main/cgp-concurrency/examples/fork_handlers.rs)
+from the workspace root.
+
+```sh
+cargo run --locked -p cgp-concurrency --features smol --example fork_handlers
+```
+
+| Task | API |
+| --- | --- |
+| Start owned handlers now and collect their outcomes later | `parent.spawn(…)`, then `tasks.join().await`. Outcomes follow handler declaration order. [Fork handlers](crates/main/cgp-concurrency/README.md#fork-handlers) |
+| Give the handlers time to clean up | `parent.spawn_cancellable(…)`, then `tasks.cancel().await`. [Cancel and drain a group](crates/main/cgp-concurrency/README.md#cancel-and-drain-a-group) |
+| Run handlers that borrow caller data | `JoinHandlers` polls each branch in the caller’s task. [Join typed handlers](crates/main/cgp-concurrency/README.md#join-typed-handlers) |
+| Submit a single future | `spawn_local_task` accepts local work. `spawn_task` accepts `Send` work. [Spawn owned tasks](crates/main/cgp-concurrency/README.md#spawn-owned-tasks) |
 
 ## Workspace
 
-| Crate | Purpose | Status |
-| --- | --- | --- |
-| [`cgp-concurrency`](crates/main/cgp-concurrency) | Runtime-neutral facade | Join handlers in the caller's task or fork them into owned tasks |
-| [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime) | Portable contract | Local and cross-thread spawn, cancellation, drain, and terminal outcomes |
-| [`cgp-concurrency-tokio`](crates/rtes/cgp-concurrency-tokio) | Tokio provider | Local spawn on a `LocalSet` and worker tasks through a runtime `Handle` |
-| [`cgp-concurrency-smol`](crates/rtes/cgp-concurrency-smol) | Smol provider | Local spawn on a `LocalExecutor` and worker tasks on an `Executor` |
-| [`cgp-concurrency-tests`](crates/tests/cgp-concurrency-tests) | Shared conformance tests | Handler joins, local and worker forks, and task ownership |
-
-This project targets CGP v0.8.0 and versions itself independently.
+| Crate | Provides |
+| --- | --- |
+| [`cgp-concurrency`](crates/main/cgp-concurrency/README.md#handler-traits) | Handler traits for spawning groups, cooperative cancellation, and caller-task joins |
+| [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime/README.md#runtime-consumer-traits) | Re-exports `cgp-runtime`'s `HasRuntimeType` to name the runtime and `HasRuntime` to borrow it. Adds `CanSpawnLocalTask` and `CanSpawnTask` for owned futures. |
+| [`cgp-concurrency-tokio`](crates/rtes/cgp-concurrency-tokio) | Local tasks on a `LocalSet`, worker tasks through a `Handle` |
+| [`cgp-concurrency-smol`](crates/rtes/cgp-concurrency-smol) | Local tasks on a `LocalExecutor`, worker tasks on an `Executor` |
+| [`cgp-concurrency-tests`](crates/tests/cgp-concurrency-tests) | Shared conformance tests for both providers |
 
 ## Documentation
 
-| Document | Use it for |
-| --- | --- |
-| [Design](DESIGN.md) | Ownership, dependency direction, and execution contracts |
-| [Release tasks](TASKS.md) | Scope, status, and acceptance criteria by release |
-| [Testing](TESTING.md) | Run the conformance suite and see how it verifies scheduling, ordering, and cleanup |
-| [Contributing](CONTRIBUTING.md) | SDLC, local checks, review, and release process |
-| [Changelog](CHANGELOG.md) | User-visible changes |
+- [Design](DESIGN.md) describes task ownership, execution, and ordering guarantees.
+- [Release tasks](TASKS.md) tracks completed and planned features.
+- [Changelog](CHANGELOG.md) lists changes by release.
 
-## Development
+## Contributing
 
-Development and CI use Rust 1.100.0. The library also builds on Rust 1.89. Run the local checks with
+Development and CI use Rust 1.100.0. Run the workspace tests from the repository root.
 
 ```sh
-cargo +nightly-2026-10-17 fmt --all
-cargo clippy --locked --all-features --all-targets -- -D warnings
 cargo nextest run --locked --workspace --all-features --no-fail-fast
 ```
 
-The complete feature and documentation gates are in [CONTRIBUTING.md](CONTRIBUTING.md#verification).
+See the [contributing guide](CONTRIBUTING.md) for setup and required checks, and the
+[testing guide](TESTING.md) for conformance tests and benchmarks.
 
 ## License
 

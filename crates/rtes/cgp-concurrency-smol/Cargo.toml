@@ -17,5 +17,8 @@ async-executor = "1.14"
 cgp-concurrency-runtime = { workspace = true, features = ["std"] }
 smol = { workspace = true }
 
+[dev-dependencies]
+cgp-core = { workspace = true }
+
 [lints]
 workspace = true
