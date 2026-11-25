@@ -42,6 +42,26 @@ input and a clone of the child context. Both `tasks.join().await` and `tasks.awa
 one `TaskOutcome<Result<Output, Error>>` per handler in that order. Dropping the group or
 a pending join requests abort for unfinished children.
 
+### Fallible submission
+
+```rust
+use cgp_concurrency::prelude::*;
+use core::marker::PhantomData;
+
+async fn run<Code, Child, Inputs, P: CanTrySpawnHandlerTasks<Code, Child, Inputs>>(
+    parent: &P, token: &CancellationToken, code: PhantomData<Code>, child: Child, inputs: Inputs,
+) -> Result<P::Outcomes, SpawnError> {
+    let tasks = parent.try_spawn(token, code, child, inputs).await?;
+    Ok(tasks.join().await)
+}
+```
+
+The first await attempts admission in declaration order. On refusal, submission stops and
+every accepted child receives an abort request before the parent waits for their termination.
+Cleanup releases each outcome as it becomes ready, even while a sibling is still draining.
+Dropping this wait releases the handles so the executor can finish cleanup. On success the
+group can outlive the parent. Handler errors appear in its ordered outcomes.
+
 ### Cancel and drain a group
 
 ```rust
@@ -193,6 +213,7 @@ The `runtime` module re-exports the full `cgp-concurrency-runtime` API.
 | Consumer trait | Provider | Operation |
 | --- | --- | --- |
 | `CanSpawnHandlerTasks` | Wire `HandlerTaskSpawnerComponent` to a `HandlerTaskSpawner`. | `spawn(code, child, inputs)` returns `HandlerTasks<P::Join>` for parent type `P`. Its owned join future yields `P::Outcomes` and can outlive the parent. |
+| `CanTrySpawnHandlerTasks` | Wire `TryHandlerTaskSpawnerComponent` to a `TryHandlerTaskSpawner`. | `try_spawn(token, code, child, inputs).await` returns an owned group or the admission error after cleanup. |
 | `CanSpawnCancellableHandlerTasks` | Available on every `CanSpawnHandlerTasks` implementation. | `spawn_cancellable(code, make_child, inputs)` gives the child constructor a fresh token and returns a group with `cancel()`. |
 | `cgp_handler::CanComputeAsync` | Wire `AsyncComputerComponent` to `JoinHandlers<Jobs>`. | `compute_async(code, inputs).await` joins handlers inside the caller's task. |
 
@@ -201,6 +222,8 @@ including those holding an `Rc` across an await. With a `CanSpawnTask` runtime, 
 `SpawnWorkerTasks<Jobs>` for handlers implementing `SendHandler::handle_send`.
 Both spawn providers require `'static` child contexts, inputs, outputs, and errors. Worker
 tasks also require these types and the handler future to be `Send`.
+To expose both submission methods, wire `[HandlerTaskSpawnerComponent, TryHandlerTaskSpawnerComponent]`
+to the same local or worker provider.
 
 ## Provider example
 

@@ -57,6 +57,19 @@ The panic tests exercise a handler whose future panics during both polling and d
 A context clone also panics on drop. The group reports the first panic, checks that the destructors
 ran outside an active unwind, and still collects the sibling's result.
 
+The [admission tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers/admission.rs) check
+prior cancellation and join a successful group after dropping its parent. They check that
+empty and nonempty groups remain joinable when the original child context panics on drop.
+Dropping a submission before its first poll releases the context and every input with zero
+provider calls. Both prior cancellation and a provider refusal release an unpolled handler's context and input,
+even when each destructor panics.
+A controlled spawner refuses the third branch. Destructors for the unused child context and both remaining inputs
+panic during cleanup. Both accepted handles must receive abort before either drain starts.
+The test opens the first drain gate and waits for its completion signal while the second gate
+stays closed. On a worker, the first child’s completed output must already be released.
+The test then either drops the wait and observes reclamation, or opens the second gate and
+checks that both children have terminated when the admission error returns.
+
 ```sh
 cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_handlers
 ```
@@ -115,7 +128,6 @@ of events explicitly so it also works when nextest runs a single test at a time.
 
 | Operation | How the test drives it | What must hold |
 | --- | --- | --- |
-| Partial submission (v0.3) | Exercise fallible submission on both runtimes and both providers. Cancel before the first branch, then in a separate run refuse a later branch after a child starts. Record submission attempts and child destruction. | The first case starts zero children. In the second, submission stops at the refusal and all accepted children are aborted and drained before the error returns. |
 | Bounded map (v0.4) | Set the limit to two and hold both active items at gates. Check the third has not started, then release the second and wait for the third to start while the first is still pending. Count active handlers and record the peak. | The peak is exactly two. Results, including item errors, follow input order. Empty input starts no handlers and a zero limit is rejected before any handler starts. |
 
 For cross-thread cases, use atomics for counts and channels or barriers for handoffs.

@@ -1,16 +1,18 @@
-use core::future::Future;
+use core::future::{Future, Ready};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use cgp::base::types::{Cons, Nil};
 use cgp::prelude::*;
 use cgp_handler::Handler;
+use futures_util::future::{Either, FutureExt, join};
 use pin_project_lite::pin_project;
 
 use crate::join::{BranchList, JoinBranches, TaskBranches, join_branches};
 use crate::runtime::{
     CanSpawnLocalTask, CanSpawnTask, CancellationToken, HasRuntime, HasRuntimeType,
-    LocalTaskSpawnerComponent, TaskHandle, TaskResult, TaskSpawnerComponent, discard,
+    LocalTaskSpawnerComponent, SpawnError, TaskControl, TaskHandle, TaskOutcome, TaskResult,
+    TaskSpawnerComponent, discard,
 };
 
 /// Spawns one owned task per configured handler and returns the group immediately.
@@ -34,6 +36,28 @@ pub trait CanSpawnHandlerTasks<Code, Child, Inputs> {
         child: Child,
         inputs: Inputs,
     ) -> HandlerTasks<Self::Join>;
+}
+
+/// Attempts to submit a group through the selected runtime's fallible spawner.
+#[cgp_component(TryHandlerTaskSpawner)]
+pub trait CanTrySpawnHandlerTasks<Code, Child, Inputs> {
+    /// Product of terminal outcomes in handler declaration order.
+    type Outcomes;
+
+    /// An accepted group's join future can outlive its parent.
+    type Join: Future<Output = Self::Outcomes> + 'static;
+
+    /// On poll, admits children in declaration order using the supplied token.
+    /// An empty group succeeds. On refusal, stops admission, aborts every accepted child,
+    /// and waits for their termination before returning the admission error.
+    /// Dropping that wait releases the handles so the executor can finish reclamation.
+    fn try_spawn(
+        &self,
+        token: &CancellationToken,
+        code: PhantomData<Code>,
+        child: Child,
+        inputs: Inputs,
+    ) -> impl Future<Output = Result<HandlerTasks<Self::Join>, SpawnError>>;
 }
 
 /// Starts a group with its own cooperative cancellation token, using the configured spawner.
@@ -164,6 +188,38 @@ where
     }
 }
 
+#[cgp_impl(SpawnHandlers<Handlers, Spawner>)]
+#[uses(HasRuntime)]
+#[use_type(HasRuntimeType.Runtime)]
+impl<Handlers, Spawner, Child, Code, Inputs, Outcomes, Tasks>
+    TryHandlerTaskSpawner<Code, Child, Inputs>
+where
+    Handlers: SpawnList<Spawner, Runtime, Child, Code, Inputs, Tasks = Tasks>,
+    Tasks: BranchList<Output = Outcomes> + 'static,
+{
+    type Outcomes = Outcomes;
+    type Join = JoinBranches<Tasks>;
+
+    fn try_spawn(
+        &self,
+        token: &CancellationToken,
+        code: PhantomData<Code>,
+        child: Child,
+        inputs: Inputs,
+    ) -> impl Future<Output = Result<HandlerTasks<Self::Join>, SpawnError>> {
+        // Acquire ownership before creating the lazy submission. Dropping it without
+        // polling must dispose of each capture independently, without touching the runtime.
+        let child = Guard::new(child, discard);
+        let inputs = Guard::new(inputs, Handlers::discard_inputs);
+        async move {
+            match Handlers::try_spawn(self.runtime(), token, child.take(), code, inputs.take()) {
+                Ok(tasks) => Ok(HandlerTasks::new(join_branches(tasks))),
+                Err(cleanup) => Err(cleanup.await),
+            }
+        }
+    }
+}
+
 // An unclaimed value is released by its own cleanup operation, including before first poll.
 struct Guard<T, D: FnOnce(T)>(Option<(T, D)>);
 
@@ -229,6 +285,14 @@ trait SpawnBranch<R, Child, Code, H, Input> {
     type Handle: TaskHandle<Self::Value> + 'static;
 
     fn spawn(runtime: &R, child: Child, code: PhantomData<Code>, input: Input) -> Self::Handle;
+
+    fn try_spawn(
+        runtime: &R,
+        token: &CancellationToken,
+        child: Child,
+        code: PhantomData<Code>,
+        input: Input,
+    ) -> Result<Self::Handle, SpawnError>;
 }
 
 impl<R, Child, Code, H, Input> SpawnBranch<R, Child, Code, H, Input> for LocalTaskSpawnerComponent
@@ -245,6 +309,17 @@ where
 
     fn spawn(runtime: &R, child: Child, _: PhantomData<Code>, input: Input) -> Self::Handle {
         runtime.spawn_local_task(local_handler_task::<H, Code, _, _>(child, input))
+    }
+
+    fn try_spawn(
+        runtime: &R,
+        token: &CancellationToken,
+        child: Child,
+        _: PhantomData<Code>,
+        input: Input,
+    ) -> Result<Self::Handle, SpawnError> {
+        let work = local_handler_task::<H, Code, _, _>(child, input);
+        runtime.try_spawn_local_task(token, TaskControl::returning_value(work))
     }
 }
 
@@ -263,19 +338,55 @@ where
     fn spawn(runtime: &R, child: Child, _: PhantomData<Code>, input: Input) -> Self::Handle {
         runtime.spawn_task(worker_handler_task::<H, Code, _, _>(child, input))
     }
+
+    fn try_spawn(
+        runtime: &R,
+        token: &CancellationToken,
+        child: Child,
+        _: PhantomData<Code>,
+        input: Input,
+    ) -> Result<Self::Handle, SpawnError> {
+        let work = worker_handler_task::<H, Code, _, _>(child, input);
+        runtime.try_spawn_task(token, TaskControl::returning_value(work))
+    }
 }
 
 trait SpawnList<Spawner, R, Child, Code, Inputs> {
     type Tasks: BranchList + 'static;
 
     fn spawn(runtime: &R, child: Child, code: PhantomData<Code>, inputs: Inputs) -> Self::Tasks;
+
+    fn discard_inputs(inputs: Inputs);
+
+    // Admission and abort are synchronous. Only draining a refused group's accepted prefix can wait.
+    fn try_spawn(
+        runtime: &R,
+        token: &CancellationToken,
+        child: Child,
+        code: PhantomData<Code>,
+        inputs: Inputs,
+    ) -> Result<Self::Tasks, impl Future<Output = SpawnError>>;
 }
 
 impl<Spawner, R, Child, Code> SpawnList<Spawner, R, Child, Code, Nil> for Nil {
     type Tasks = Nil;
 
-    fn spawn(_: &R, _: Child, _: PhantomData<Code>, _: Nil) -> Self::Tasks {
+    fn spawn(_: &R, child: Child, _: PhantomData<Code>, _: Nil) -> Self::Tasks {
+        discard(child);
         Nil
+    }
+
+    fn discard_inputs(_: Nil) {}
+
+    fn try_spawn(
+        _: &R,
+        _: &CancellationToken,
+        child: Child,
+        _: PhantomData<Code>,
+        _: Nil,
+    ) -> Result<Nil, impl Future<Output = SpawnError>> {
+        discard(child);
+        Ok::<_, Ready<SpawnError>>(Nil)
     }
 }
 
@@ -296,5 +407,38 @@ where
     ) -> Self::Tasks {
         let head = Spawner::spawn(runtime, child.clone(), code, inputs.0);
         TaskBranches::new(head, Tail::spawn(runtime, child, code, inputs.1))
+    }
+
+    fn discard_inputs(inputs: Cons<Input, Inputs>) {
+        discard(inputs.0);
+        Tail::discard_inputs(inputs.1);
+    }
+
+    fn try_spawn(
+        runtime: &R,
+        token: &CancellationToken,
+        child: Child,
+        code: PhantomData<Code>,
+        inputs: Cons<Input, Inputs>,
+    ) -> Result<Self::Tasks, impl Future<Output = SpawnError>> {
+        let head = match Spawner::try_spawn(runtime, token, child.clone(), code, inputs.0) {
+            Ok(head) => head,
+            Err(error) => {
+                // Let every enclosing branch signal abort before running user destructors.
+                return Err(Either::Left(async move {
+                    discard(child);
+                    Tail::discard_inputs(inputs.1);
+                    error
+                }));
+            }
+        };
+        match Tail::try_spawn(runtime, token, child, code, inputs.1) {
+            Ok(tail) => Ok(TaskBranches::new(head, tail)),
+            Err(cleanup) => {
+                head.abort();
+                let drains = join(cleanup, head.map(TaskOutcome::discard));
+                Err(Either::Right(drains.map(|(error, ())| error)))
+            }
+        }
     }
 }

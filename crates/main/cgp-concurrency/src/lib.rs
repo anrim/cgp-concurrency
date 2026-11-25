@@ -13,8 +13,9 @@ pub use cgp_concurrency_smol as smol;
 #[cfg(feature = "tokio")]
 pub use cgp_concurrency_tokio as tokio;
 pub use fork::{
-    CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks, HandlerTaskSpawner,
-    HandlerTaskSpawnerComponent, HandlerTasks, SendHandler, SpawnLocalTasks, SpawnWorkerTasks,
+    CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks, CanTrySpawnHandlerTasks,
+    HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks, SendHandler, SpawnLocalTasks,
+    SpawnWorkerTasks, TryHandlerTaskSpawner, TryHandlerTaskSpawnerComponent,
 };
 pub use join::JoinHandlers;
 
@@ -26,8 +27,8 @@ pub mod prelude {
         TaskOutcome, TaskSpawner, TaskSpawnerComponent,
     };
     pub use crate::{
-        CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks, HandlerTaskSpawner,
-        HandlerTaskSpawnerComponent, HandlerTasks, JoinHandlers, SendHandler, SpawnLocalTasks,
-        SpawnWorkerTasks,
+        CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks, CanTrySpawnHandlerTasks,
+        HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks, JoinHandlers, SendHandler,
+        SpawnLocalTasks, SpawnWorkerTasks, TryHandlerTaskSpawner, TryHandlerTaskSpawnerComponent,
     };
 }

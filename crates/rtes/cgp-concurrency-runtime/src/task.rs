@@ -100,6 +100,14 @@ pub async fn await_with_cleanup<F: Future>(work: F) -> F::Output {
     TaskResult(Ok(work)).run().await.finish(|| {})
 }
 
+impl<T> TaskOutcome<T> {
+    /// Releases an unwanted outcome during cleanup. With `std` and unwinding enabled,
+    /// contains a panic from destroying its value so other tasks can still be drained.
+    pub fn discard(self) {
+        discard(self);
+    }
+}
+
 /// Drops one unused value during cleanup. With `std` and unwinding enabled, a panic
 /// from its destructor is contained. Discard independent values separately.
 pub fn discard<T>(value: T) {

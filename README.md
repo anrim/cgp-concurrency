@@ -34,6 +34,7 @@ cargo run --locked -p cgp-concurrency --features smol --example fork_handlers
 | Task | API |
 | --- | --- |
 | Start owned handlers now and collect their outcomes later | `parent.spawn(…)`, then `tasks.join().await`. Outcomes follow handler declaration order. [Fork handlers](crates/main/cgp-concurrency/README.md#fork-handlers) |
+| Handle a refusal during submission | `parent.try_spawn(&token, code, child, inputs).await?` returns an owned group after admission. On refusal it aborts and drains the accepted children. [Fallible submission](crates/main/cgp-concurrency/README.md#fallible-submission) |
 | Give the handlers time to clean up | `parent.spawn_cancellable(…)`, then `tasks.cancel().await`. [Cancel and drain a group](crates/main/cgp-concurrency/README.md#cancel-and-drain-a-group) |
 | Run handlers that borrow caller data | `JoinHandlers` polls each branch in the caller’s task. [Join typed handlers](crates/main/cgp-concurrency/README.md#join-typed-handlers) |
 | Submit a single future | `spawn_local_task` accepts local work. `spawn_task` accepts `Send` work. [Spawn owned tasks](crates/main/cgp-concurrency/README.md#spawn-owned-tasks) |

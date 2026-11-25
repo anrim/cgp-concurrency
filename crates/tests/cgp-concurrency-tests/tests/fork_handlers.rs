@@ -5,6 +5,8 @@
 
 extern crate cgp_core as cgp;
 
+#[path = "fork_handlers/admission.rs"]
+mod admission;
 #[path = "fork_handlers/cancellation.rs"]
 mod cancellation;
 #[path = "support/executors.rs"]
@@ -142,7 +144,7 @@ delegate_and_check_components! {
     #[check_trait(CheckLocalFork)]
     <R: CanSpawnLocalTask> Parent<R, Local> {
         #[check_params((ReadPair, Child<Rc<u32>>, Inputs))]
-        HandlerTaskSpawnerComponent: Local,
+        [HandlerTaskSpawnerComponent, TryHandlerTaskSpawnerComponent]: Local,
     }
 }
 
@@ -150,7 +152,62 @@ delegate_and_check_components! {
     #[check_trait(CheckWorkerFork)]
     <R: CanSpawnTask> Parent<R, Workers> {
         #[check_params((ReadPair, Child<Cell<u32>>, Inputs))]
-        HandlerTaskSpawnerComponent: Workers,
+        [HandlerTaskSpawnerComponent, TryHandlerTaskSpawnerComponent]: Workers,
+    }
+}
+
+struct PairGates {
+    first: Sender<()>,
+    second: Sender<()>,
+    started: Receiver<ThreadId>,
+}
+
+impl PairGates {
+    fn inputs() -> (Self, Inputs) {
+        let (start, started) = bounded(2);
+        let (first, first_gate) = bounded(1);
+        let (second, second_gate) = bounded(1);
+        let inputs = product![
+            Gate {
+                start: start.clone(),
+                release: first_gate
+            },
+            (
+                Gate {
+                    start,
+                    release: second_gate
+                },
+                Cell::new(17)
+            ),
+        ];
+        (
+            Self {
+                first,
+                second,
+                started,
+            },
+            inputs,
+        )
+    }
+
+    async fn join<T>(
+        self,
+        tasks: HandlerTasks<impl Future<Output = Outcomes<T>>>,
+        local: bool,
+    ) -> T {
+        let caller = thread::current().id();
+        // Observe both children start and the second pass its gate before calling join.
+        for _ in 0..2 {
+            assert_eq!(self.started.recv().await.unwrap() == caller, local);
+        }
+        self.second.try_send(()).unwrap();
+        self.second.closed().await;
+        let product![first, second] = join_after_pending(tasks.join(), &self.first).await;
+        assert_eq!(second, TaskOutcome::Completed(Err(Rejected(17))));
+        match first {
+            TaskOutcome::Completed(Ok(value)) => value,
+            _ => panic!("first child did not return its value"),
+        }
     }
 }
 
@@ -158,37 +215,9 @@ async fn reverse_completion<T, P>(parent: &P, value: T, local: bool) -> T
 where
     P: CanSpawnHandlerTasks<ReadPair, Child<T>, Inputs, Outcomes = Outcomes<T>>,
 {
-    let caller = thread::current().id();
-    let (start, started) = bounded(2);
-    let (first, first_gate) = bounded(1);
-    let (second, second_gate) = bounded(1);
-    let inputs = product![
-        Gate {
-            start: start.clone(),
-            release: first_gate
-        },
-        (
-            Gate {
-                start,
-                release: second_gate
-            },
-            Cell::new(17)
-        ),
-    ];
+    let (gates, inputs) = PairGates::inputs();
     let tasks = parent.spawn(PhantomData, Child { value }, inputs);
-
-    // Observe both children start and the second pass its gate before calling join.
-    for _ in 0..2 {
-        assert_eq!(started.recv().await.unwrap() == caller, local);
-    }
-    second.try_send(()).unwrap();
-    second.closed().await;
-    let product![first, second] = join_after_pending(tasks.join(), &first).await;
-    assert_eq!(second, TaskOutcome::Completed(Err(Rejected(17))));
-    match first {
-        TaskOutcome::Completed(Ok(value)) => value,
-        _ => panic!("first child did not return its value"),
-    }
+    gates.join(tasks, local).await
 }
 
 // Open the last gate after the join registers its waker, then let the executor repoll it.

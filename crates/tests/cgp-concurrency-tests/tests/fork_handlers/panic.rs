@@ -90,40 +90,56 @@ type Outcomes = Product![Outcome, Outcome];
 
 pub(super) async fn check<P, S>(parent: &P)
 where
-    S: HandlerTaskSpawner<P, ReadPair, Child<ContextDrop>, Inputs, Outcomes = Outcomes>,
+    S: HandlerTaskSpawner<P, ReadPair, Child<ContextDrop>, Inputs, Outcomes = Outcomes>
+        + TryHandlerTaskSpawner<P, ReadPair, Child<ContextDrop>, Inputs, Outcomes = Outcomes>,
 {
-    for (panic_in_poll, panic_in_cleanup, expected) in [
-        (true, true, "handler poll"),
-        (false, true, "handler cleanup"),
-        (false, false, "context cleanup"),
-    ] {
-        let (signal, observed) = bounded(2);
-        let child = Child {
-            value: ContextDrop {
-                arm_next_clone: Arc::new(AtomicBool::new(true)),
-                armed: false,
-                observed: signal.clone(),
-            },
-        };
-        let inputs = product![
-            Failure {
-                panic_in_poll,
-                cleanup: panic_in_cleanup.then_some(signal)
-            },
-            Failure {
-                panic_in_poll: false,
-                cleanup: None
+    for fallible in [false, true] {
+        for (panic_in_poll, panic_in_cleanup, expected) in [
+            (true, true, "handler poll"),
+            (false, true, "handler cleanup"),
+            (false, false, "context cleanup"),
+        ] {
+            let (signal, observed) = bounded(2);
+            let child = Child {
+                value: ContextDrop {
+                    arm_next_clone: Arc::new(AtomicBool::new(true)),
+                    armed: false,
+                    observed: signal.clone(),
+                },
+            };
+            let inputs = product![
+                Failure {
+                    panic_in_poll,
+                    cleanup: panic_in_cleanup.then_some(signal)
+                },
+                Failure {
+                    panic_in_poll: false,
+                    cleanup: None
+                }
+            ];
+            let product![failed, sibling] = if fallible {
+                S::try_spawn(
+                    parent,
+                    &CancellationToken::new(),
+                    PhantomData,
+                    child,
+                    inputs,
+                )
+                .await
+                .unwrap()
+                .await
+            } else {
+                S::spawn(parent, PhantomData, child, inputs).await
+            };
+            assert_eq!(failed, TaskOutcome::Panicked(Some(expected.into())));
+            assert_eq!(sibling, TaskOutcome::Completed(Ok(())));
+            for _ in 0..1 + usize::from(panic_in_cleanup) {
+                assert_eq!(
+                    observed.try_recv(),
+                    Ok(false),
+                    "destructor ran during unwind"
+                );
             }
-        ];
-        let product![failed, sibling] = S::spawn(parent, PhantomData, child, inputs).await;
-        assert_eq!(failed, TaskOutcome::Panicked(Some(expected.into())));
-        assert_eq!(sibling, TaskOutcome::Completed(Ok(())));
-        for _ in 0..1 + usize::from(panic_in_cleanup) {
-            assert_eq!(
-                observed.try_recv(),
-                Ok(false),
-                "destructor ran during unwind"
-            );
         }
     }
 }

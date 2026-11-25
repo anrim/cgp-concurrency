@@ -49,6 +49,9 @@ later waiters. The task can clean up and return `Err(Cancelled)` or finish with 
 `abort()` stops pending work at a poll boundary and preserves an already completed outcome.
 Dropping a pending owner also requests abort. Keep the executor running to reclaim the task.
 A pending `drain()` can be retried and yields one terminal outcome after the task future is destroyed.
+Call `outcome.discard()` for an unwanted result or `discard(value)` for an unused input.
+With `std` and unwinding enabled, each call contains a panic from dropping that value so
+cleanup can continue.
 
 ## Implementing a provider
 

@@ -21,6 +21,7 @@ cargo bench --locked -p cgp-concurrency-tests --features tokio,smol --bench task
 | `HasRuntimeType`, `HasRuntime` | `UseType<R>`, `UseFields` | The same app can select and borrow either runtime. |
 | `CanSpawnLocalTask`, `CanSpawnTask` | `SpawnOnRuntime` | Owned tasks can progress before join, acknowledge cancellation, abort, and drain. |
 | `CanSpawnHandlerTasks`, `CanSpawnCancellableHandlerTasks` | `SpawnLocalTasks`, `SpawnWorkerTasks` | Forked children return ordered outcomes, including after group cancellation. |
+| `CanTrySpawnHandlerTasks` | `SpawnLocalTasks`, `SpawnWorkerTasks` | A refused submission stops at the first error and reclaims accepted children, including when the cleanup wait is dropped. |
 | `CanComputeAsync` | `JoinHandlers` | The caller drives each branch and receives its typed result in declaration order. |
 
 ## Implement a test handler
