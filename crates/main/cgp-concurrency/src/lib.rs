@@ -4,6 +4,7 @@
 
 extern crate cgp_core as cgp;
 
+mod fork;
 mod join;
 
 pub use cgp_concurrency_runtime as runtime;
@@ -11,14 +12,21 @@ pub use cgp_concurrency_runtime as runtime;
 pub use cgp_concurrency_smol as smol;
 #[cfg(feature = "tokio")]
 pub use cgp_concurrency_tokio as tokio;
+pub use fork::{
+    CanSpawnHandlerTasks, HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks,
+    SendHandler, SpawnLocalTasks, SpawnWorkerTasks,
+};
 pub use join::JoinHandlers;
 
 pub mod prelude {
-    pub use crate::JoinHandlers;
     pub use crate::runtime::{
         CanSpawnLocalTask, CanSpawnTask, CancellationToken, Cancelled, HasRuntime, HasRuntimeType,
         LocalTaskSpawner, LocalTaskSpawnerComponent, RuntimeGetter, RuntimeGetterComponent,
         RuntimeOf, RuntimeTypeProvider, RuntimeTypeProviderComponent, SpawnError, TaskHandle,
         TaskOutcome, TaskSpawner, TaskSpawnerComponent,
+    };
+    pub use crate::{
+        CanSpawnHandlerTasks, HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks,
+        JoinHandlers, SendHandler, SpawnLocalTasks, SpawnWorkerTasks,
     };
 }

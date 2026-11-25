@@ -26,7 +26,21 @@ Run the public worker-spawn cases on both providers.
 cargo nextest run --locked -p cgp-concurrency-tests --all-features -j 1 -E 'test(multithread)'
 ```
 
-For typed joins, run both the behavior and future-size tests. The facade doctests exercise
+## Join handlers and fork handlers
+
+Both joins return one typed result per handler in declaration order. The tests distinguish
+them by observing what happens when a branch's gate opens.
+
+| What the test observes | Join handlers (`JoinHandlers`, v0.2.0) | Spawn then join (`CanSpawnHandlerTasks`, v0.3.0) |
+| --- | --- | --- |
+| Who advances the handler? | Opening the second gate wakes the caller. Its next poll of the join advances the second handler. | `spawn` submits both children immediately. The test opens the second gate and observes the child pass it before calling `tasks.join()`. |
+| What can a branch carry? | The label borrows the caller's string across an await. | Each child owns its input and context clone. A local child returns an `Rc` on the caller's thread. A worker child returns a `Cell` from another thread. |
+| How does an application error appear? | The second slot holds `Err(InvalidRecord(17))`. | The second slot holds `TaskOutcome::Completed(Err(Rejected(17)))`. The task completed and the handler returned an error. |
+| What happens on drop? | Dropping the join directly drops its pending futures and retained results. | Dropping the group or a pending join drops its owned handles and requests abort. The test observes the executor reclaim both children while their gate stays shut. |
+
+Run the [caller-task join tests](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) and
+their future-size check. The [three-handler case](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs)
+releases the middle, last, and first handler on successive wakeups. The facade doctests exercise
 composition with `PipeHandlers` and check that surplus inputs fail to compile.
 
 ```sh
@@ -34,14 +48,15 @@ cargo nextest run --locked -p cgp-concurrency-tests --all-features --test typed_
 cargo test --locked -p cgp-concurrency --doc
 ```
 
-## What runs today
+Run the [fork handler tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs)
+on both runtimes. Each exercises `SpawnLocalTasks` and `SpawnWorkerTasks`, including moving
+the worker group to another thread to await its outcomes.
 
-The [typed join test](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) holds both handlers
-at separate gates, then lets the second return an application error. Each gate must wake the
-caller. The first handler returns an `Rc` borrowing the caller's string, and both results arrive
-in declaration order. A [three-branch case](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs)
-opens the middle, last, and first gates on successive wakeups and checks both distinct errors
-and the borrowed value.
+```sh
+cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_handlers
+```
+
+## Task ownership tests
 
 The local-spawn test holds an `Rc` across an await on Tokio's `LocalSet` and Smol's `LocalExecutor`.
 It calls the public spawn component through a test application's compile-time checked CGP wiring.
@@ -83,7 +98,9 @@ of events explicitly so it also works when nextest runs a single test at a time.
 
 | Operation | How the test drives it | What must hold |
 | --- | --- | --- |
-| Join of spawned children (v0.3) | Run the same scenarios on Tokio and Smol with local and cross-thread tasks. In separate cases cancel the parent, panic a child, and refuse a later spawn after a child has started. Record child starts, outcomes, and destruction. | Cancellation and spawn refusal stop admission. The parent drains every accepted child before it returns. A child panic is observable in its branch's result. |
+| Child panic (v0.3) | Panic one child while its sibling waits at a gate, then let the sibling finish. | The join returns the panic and the sibling's application result in branch order. |
+| Cancel and drain a group (v0.3) | Let the local or worker children start on each runtime. Request group cancellation and hold one child's cleanup at a gate. | The wait stays pending until the gate opens and all children terminate. |
+| Partial submission (v0.3) | Exercise fallible submission on both runtimes and both providers. Cancel before the first branch, then in a separate run refuse a later branch after a child starts. Record submission attempts and child destruction. | The first case starts zero children. In the second, submission stops at the refusal and all accepted children are aborted and drained before the error returns. |
 | Bounded map (v0.4) | Set the limit to two and hold both active items at gates. Check the third has not started, then release the second and wait for the third to start while the first is still pending. Count active handlers and record the peak. | The peak is exactly two. Results, including item errors, follow input order. Empty input starts no handlers and a zero limit is rejected before any handler starts. |
 
 For cross-thread cases, use atomics for counts and channels or barriers for handoffs.

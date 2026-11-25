@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+- **Fork handlers.** `spawn` submits one owned task per handler before returning. The provider
+  selects local or worker execution. Both `tasks.join().await` and `tasks.await` yield one
+  typed outcome per handler in declaration order. Dropping the group or a pending join requests
+  abort for its pending children. [Fork handlers example](crates/main/cgp-concurrency/README.md#fork-handlers)
+
 ## v0.2.0
 
 This release targets CGP v0.8.0 and requires Rust 1.89 or later.

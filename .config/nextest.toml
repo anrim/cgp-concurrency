@@ -1,4 +1,4 @@
 # A lost wake can leave an ownership or join test waiting indefinitely.
 [[profile.default.overrides]]
-filter = "binary(task_ownership) | binary(typed_join)"
+filter = "binary(task_ownership) | binary(typed_join) | binary(fork_handlers)"
 slow-timeout = { period = "15s", terminate-after = 2 }

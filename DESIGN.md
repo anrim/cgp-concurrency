@@ -79,6 +79,20 @@ The caller's future drives all branches and retains one typed result per complet
 Awaiting the join returns every result in declaration order, including application errors.
 Dropping the join discards retained results and drops pending branch futures.
 
+### Fork handlers
+
+`CanSpawnHandlerTasks` separates task submission from joining. The parent wires
+`HandlerTaskSpawnerComponent` to either `SpawnLocalTasks<Jobs>` or `SpawnWorkerTasks<Jobs>`.
+Both take the same product of handler providers and use the parent's selected runtime. Each
+child owns an input and a clone of the child context. Worker handlers recover the future's
+`Send` bound through `SendHandler`. Local handlers can retain non-`Send` state.
+
+`spawn` submits every child synchronously through the infallible spawn operations,
+releases the original child context, and returns a `HandlerTasks` group. The executor can run
+the children as soon as they are submitted. Both `tasks.join().await` and `tasks.await` return one
+`TaskOutcome<Result<Output, Error>>` per branch in declaration order. Dropping the group
+or an unfinished join releases the handles under their abort-on-drop contract.
+
 ### Infrastructure and application outcomes remain separate
 
 The portable task outcome has four variants.

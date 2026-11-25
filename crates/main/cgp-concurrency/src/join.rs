@@ -1,5 +1,5 @@
-use core::future::{Future, poll_fn};
-use core::pin::{Pin, pin};
+use core::future::Future;
+use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use cgp::base::types::{Cons, Nil};
@@ -33,8 +33,7 @@ where
     type Output = Outputs;
 
     async fn compute_async(&self, code: PhantomData<Code>, inputs: Inputs) -> Outputs {
-        let mut branches = pin!(Handlers::branches(self, code, inputs));
-        poll_fn(|cx| branches.as_mut().poll_joined(cx)).await
+        join_branches(Handlers::branches(self, code, inputs)).await
     }
 }
 
@@ -70,28 +69,42 @@ where
         code: PhantomData<Code>,
         inputs: Cons<Input, Inputs>,
     ) -> impl BranchList<Output = Self::Output> {
-        Branches {
-            // Invoke the handler on its first poll, even if constructing its future does work.
-            head: maybe_done(async move { Head::handle(app, code, inputs.0).await }),
-            tail: Tail::branches(app, code, inputs.1),
-        }
+        // Invoke the handler on its first poll, even if constructing its future does work.
+        let head = async move { Head::handle(app, code, inputs.0).await };
+        Branches::new(head, Tail::branches(app, code, inputs.1))
     }
 }
 
 // The tail contains only its branch slots. Assemble the product once, after all are ready.
-trait BranchList {
+pub(crate) trait BranchList {
     type Output;
 
-    fn poll_joined(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.as_mut().poll_all(cx) {
-            Poll::Ready(self.take_outputs())
+    fn poll_all(self: Pin<&mut Self>, cx: &mut Context<'_>) -> bool;
+    fn take_outputs(self: Pin<&mut Self>) -> Self::Output;
+}
+
+pin_project! {
+    struct JoinBranches<B> {
+        #[pin]
+        branches: B,
+    }
+}
+
+pub(crate) fn join_branches<B: BranchList>(branches: B) -> impl Future<Output = B::Output> {
+    JoinBranches { branches }
+}
+
+impl<B: BranchList> Future for JoinBranches<B> {
+    type Output = B::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut branches = self.project().branches;
+        if branches.as_mut().poll_all(cx) {
+            Poll::Ready(branches.take_outputs())
         } else {
             Poll::Pending
         }
     }
-
-    fn poll_all(self: Pin<&mut Self>, cx: &mut Context<'_>) -> bool;
-    fn take_outputs(self: Pin<&mut Self>) -> Self::Output;
 }
 
 impl BranchList for Nil {
@@ -107,11 +120,20 @@ impl BranchList for Nil {
 }
 
 pin_project! {
-    struct Branches<Head: Future, Tail> {
+    pub(crate) struct Branches<Head: Future, Tail> {
         #[pin]
         head: MaybeDone<Head>,
         #[pin]
         tail: Tail,
+    }
+}
+
+impl<Head: Future, Tail> Branches<Head, Tail> {
+    pub(crate) fn new(head: Head, tail: Tail) -> Self {
+        Self {
+            head: maybe_done(head),
+            tail,
+        }
     }
 }
 

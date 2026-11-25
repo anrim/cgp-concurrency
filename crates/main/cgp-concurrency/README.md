@@ -9,6 +9,15 @@ adapter. The default feature set is empty.
 | `tokio` | Re-export `cgp-concurrency-tokio` |
 | `smol` | Re-export `cgp-concurrency-smol` |
 
+Use `JoinHandlers` for concurrent work that fits within one task, such as two async lookups
+that borrow fields from the same request. The caller polls both futures and receives each
+handler's `Result` without spawning tasks.
+
+Use `spawn` when the runtime should schedule each handler independently. For example,
+two handlers processing owned batches can run on separate worker threads, and the parent can
+distinguish a handler's application error from a child task's panic. A local fork also lets
+children progress independently on a single thread.
+
 ## Join typed handlers
 
 `JoinHandlers<Product![A, B, …]>` polls all handlers in the caller's future. Wire it to
@@ -91,7 +100,113 @@ async fn surplus_input(app: &impl HasErrorType) {
 }
 ```
 
+## Fork handlers
+
+```rust
+# extern crate cgp_core as cgp;
+# use cgp::prelude::*;
+# use cgp_concurrency::CanSpawnHandlerTasks;
+# async fn run_pair<Code, Child, Inputs, A, B>(
+#     parent: &impl CanSpawnHandlerTasks<Code, Child, Inputs, Outcomes = Product![A, B]>,
+#     code: PhantomData<Code>, child: Child, inputs: Inputs,
+# ) {
+let tasks = parent.spawn(code, child, inputs);
+let product![first, second] = tasks.join().await;
+# }
+```
+
+`spawn` submits one task per handler before returning. The children can run while the parent
+does other work. Joining collects their outcomes in declaration order. The group also
+implements `Future`, so you can write `tasks.await` or pass two groups to
+`futures_lite::future::zip(left, right)`.
+
+Wire `HandlerTaskSpawnerComponent` to `SpawnLocalTasks<Jobs>` or `SpawnWorkerTasks<Jobs>`,
+where `Jobs` is a product of handler providers. The choice applies to the entire group.
+Each spawned task owns its input and a clone of the child context. These values and the handler's
+output and error must be `'static`, so the group can outlive the borrow of its parent.
+
+Local handlers can hold an `Rc` across an await. Worker handlers use `SendHandler` to prove
+their futures can move between threads. Their child context, inputs, outputs, and application
+errors must also be `Send`. Both providers use the parent's selected runtime.
+
+This worker branch forwards to the existing `ReturnInput` handler. The concrete implementation
+lets Rust check that the handler future can move between threads.
+
+```rust
+extern crate cgp_core as cgp;
+
+use core::convert::Infallible;
+use cgp::component::UseFields;
+use cgp::prelude::*;
+use cgp_concurrency::prelude::*;
+use cgp_handler::{Handler, ReturnInput};
+
+#[derive(Clone)]
+struct Child;
+impl HasErrorType for Child {
+    type Error = Infallible;
+}
+
+impl SendHandler<Child, (), u32> for ReturnInput {
+    fn handle_send(child: &Child, code: PhantomData<()>, input: u32)
+        -> impl Future<Output = Result<u32, Infallible>> + Send
+    {
+        Self::handle(child, code, input)
+    }
+}
+
+type Jobs = Product![ReturnInput, ReturnInput];
+
+#[derive(HasField)]
+struct Parent<R> {
+    runtime: R,
+}
+
+delegate_and_check_components! {
+    <R: CanSpawnTask> Parent<R> {
+        RuntimeTypeProviderComponent: UseType<R>,
+        RuntimeGetterComponent: UseFields,
+        #[check_params(((), Child, Product![u32, u32]))]
+        HandlerTaskSpawnerComponent: SpawnWorkerTasks<Jobs>,
+    }
+}
+
+async fn run_pair<R: CanSpawnTask>(parent: &Parent<R>) {
+    let tasks = parent.spawn(PhantomData::<()>, Child, product![3_u32, 7_u32]);
+    let product![first, second] = tasks.await;
+    assert_eq!(first, TaskOutcome::Completed(Ok(3)));
+    assert_eq!(second, TaskOutcome::Completed(Ok(7)));
+}
+
+# #[cfg(feature = "smol")]
+# {
+#     let executor = Default::default();
+#     let parent = Parent { runtime: cgp_concurrency::smol::SmolSpawner(&executor) };
+#     futures_lite::future::block_on(executor.run(run_pair(&parent)));
+# }
+```
+
+Application errors are preserved inside `TaskOutcome::Completed(Err(error))`.
+Dropping an unjoined group or a pending join requests abortion through its owned handles.
+The executor reclaims the children as it runs.
+
 ## Spawn owned tasks
+
+To start work now and join later, keep the handles returned by the runtime. Both children can
+run as soon as they are submitted. The parent can do other work before draining either handle.
+
+```rust
+use cgp_concurrency::prelude::{CanSpawnTask, TaskHandle, TaskOutcome};
+
+async fn spawn_then_join(runtime: &impl CanSpawnTask) {
+    let mut first = runtime.spawn_task(async { 3_u32 });
+    let mut second = runtime.spawn_task(async { 7_u32 });
+
+    // The parent owns both tasks until it joins them here.
+    assert_eq!(first.drain().await, TaskOutcome::Completed(3));
+    assert_eq!(second.drain().await, TaskOutcome::Completed(7));
+}
+```
 
 A generic caller can move an `Rc` into a task and wait through a mutable borrow of its owner.
 
