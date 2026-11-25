@@ -27,7 +27,7 @@
 - [x] [Cancel and drain a handler group](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs).
 - [x] [Reclaim children and retained results when a pending cancellation wait is dropped](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs).
 - [x] [Return an owned join](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs) that can outlive its parent.
-- [ ] Benchmark spawn and join for one and eight handlers on both runtimes and executor types.
+- [x] [Benchmark spawn and join](crates/tests/cgp-concurrency-tests/benches/spawn_join.rs) for one and eight handlers on both runtimes and executor types.
 - [ ] Document the public API in the crate guides and provide a runnable fork/join example.
 - [ ] Implement `parent.try_spawn(...)` and abort and drain accepted children on refusal.
 - [ ] Simplify `SendHandler` forwarding while preserving the worker future’s `Send` bound.

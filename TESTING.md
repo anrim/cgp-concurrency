@@ -120,6 +120,54 @@ of events explicitly so it also works when nextest runs a single test at a time.
 
 For cross-thread cases, use atomics for counts and channels or barriers for handoffs.
 
+## Benchmark spawn and join
+
+The `spawn_join` benchmark measures one complete `parent.spawn(...).join().await` for
+groups of one or eight handlers. Each handler immediately returns its integer input.
+Criterion reports elapsed time per group and throughput in child tasks per second.
+Each sample reuses its executor across iterations. Executor startup, shutdown, and a check
+of every child's result sit outside the timed loop.
+
+From the workspace root, save a baseline before changing a feature, then compare on the
+same machine with the same Rust toolchain and runtime configuration.
+
+```sh
+export CRITERION_HOME="$PWD/target/criterion"
+cargo bench --locked -p cgp-concurrency-tests --all-features --bench spawn_join -- --save-baseline fork-handlers
+# After the change
+cargo bench --locked -p cgp-concurrency-tests --all-features --bench spawn_join -- --baseline fork-handlers
+```
+
+Setting `CRITERION_HOME` gives both runs the same baseline directory. Compare each case
+with its own baseline. The local cases use the calling thread. The worker cases use the shared
+test fixtures with two Tokio worker threads and one Smol worker thread.
+
+### Large batches
+
+`task_batches` submits groups of eight until 1,000 or 10,000 children are pending.
+The direct comparison runs the same handler on the same executor using individual task
+handles. Each sample waits for every child to register at its gate before finishing.
+
+| Path | What the benchmark verifies |
+| --- | --- |
+| Join | Open the shared gate and collect every child's input index in declaration order. |
+| Cancel and drain | Signal every group before draining the first. Each child observes its group's request and returns its index. |
+| Abort on drop | Drop every owner with the gate closed and wait for the executor to destroy the last child's input. |
+
+Run the two profiles separately on an idle machine. Each prints five samples per case as CSV.
+
+```sh
+cargo bench --locked -p cgp-concurrency-tests --features tokio,smol --bench task_batches > cpu.csv
+cargo bench --locked -p cgp-concurrency-tests --all-features --bench task_batches > heap.csv
+```
+
+The first run records process CPU across all threads for submission, waiting for all
+children to park, and finishing. Worker execution can overlap submission. The heap run
+counts allocations and peak live bytes above the executor's starting level per child.
+Its final column reports excess live bytes for the **whole batch** immediately after
+reclamation, while the executor can still retain queue storage. Use the first run for
+timing comparisons because the heap counters add work to every allocation.
+
 ## CI checks
 
 CI runs the workspace suite with both providers, tests each provider separately, and runs
