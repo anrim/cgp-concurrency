@@ -8,6 +8,9 @@ extern crate cgp_core as cgp;
 #[path = "support/executors.rs"]
 mod executors;
 
+#[path = "fork_handlers/panic.rs"]
+mod panic;
+
 use core::future::poll_fn;
 use core::pin::pin;
 use std::cell::Cell;
@@ -60,7 +63,7 @@ struct Gate {
 impl Gate {
     async fn wait(&self) {
         self.start.try_send(thread::current().id()).unwrap();
-        self.release.recv().await.unwrap();
+        self.release.recv().await.expect("branch gate closed");
     }
 }
 
@@ -197,6 +200,44 @@ where
     }
 }
 
+async fn child_panic_preserves_sibling<T, P>(parent: &P, value: T)
+where
+    P: CanSpawnHandlerTasks<ReadPair, Child<T>, Inputs, Outcomes = Outcomes<T>>,
+{
+    let (first_start, first_started) = bounded(1);
+    let (fail, first_gate) = bounded(1);
+    let (second_start, second_started) = bounded(1);
+    let (resume, second_gate) = bounded(1);
+    let inputs = product![
+        Gate {
+            start: first_start,
+            release: first_gate
+        },
+        (
+            Gate {
+                start: second_start,
+                release: second_gate
+            },
+            Cell::new(17)
+        )
+    ];
+    let tasks = parent.spawn(PhantomData, Child { value }, inputs);
+    first_started.recv().await.unwrap();
+    second_started.recv().await.unwrap();
+    drop(fail);
+    // Unwinding drops the first handler's only sender while its sibling is still gated.
+    assert!(first_started.recv().await.is_err());
+    let mut joined = pin!(tasks.join());
+    assert!(future::poll_once(&mut joined).await.is_none());
+    resume.try_send(()).unwrap();
+
+    let product![first, second] = joined.await;
+    assert!(
+        matches!(first, TaskOutcome::Panicked(Some(message)) if message.starts_with("branch gate closed"))
+    );
+    assert_eq!(second, TaskOutcome::Completed(Err(Rejected(17))));
+}
+
 async fn drop_pending<P, Spawner>(parent: &P)
 where
     Spawner: HandlerTaskSpawner<P, ReadPair, Child<Sender<()>>, Product![Record, Record]>,
@@ -237,6 +278,8 @@ async fn local(runtime: impl CanSpawnLocalTask) {
     let value = Rc::new(42);
     let returned = reverse_completion(&parent, value.clone(), true).await;
     assert!(Rc::ptr_eq(&returned, &value));
+    child_panic_preserves_sibling(&parent, value).await;
+    panic::check::<_, SpawnLocalTasks<panic::Jobs>>(&parent).await;
     type Pending = SpawnLocalTasks<Product![RejectRecord, RejectRecord]>;
     drop_pending::<_, Pending>(&parent).await;
 
@@ -269,6 +312,8 @@ async fn worker(runtime: impl CanSpawnTask) {
             .get(),
         42
     );
+    child_panic_preserves_sibling(&parent, Cell::new(42)).await;
+    panic::check::<_, SpawnWorkerTasks<panic::Jobs>>(&parent).await;
     type Pending = SpawnWorkerTasks<Product![RejectRecord, RejectRecord]>;
     drop_pending::<_, Pending>(&parent).await;
 

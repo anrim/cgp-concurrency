@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::OnceLock;
 
-use crate::{TaskOutcome, panic_message};
+use crate::{TaskOutcome, discard, panic_message};
 
 /// Collects panics from task destruction before a native join publishes termination.
 pub struct TaskCompletion {
@@ -51,12 +51,6 @@ impl<T> Drop for UnclaimedOutput<T> {
         if let Some(outcome) = self.0.take() {
             discard(outcome);
         }
-    }
-}
-
-pub(crate) fn discard<T>(value: T) {
-    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(value))) {
-        panic_message(payload);
     }
 }
 

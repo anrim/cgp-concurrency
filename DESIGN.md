@@ -91,7 +91,8 @@ child owns an input and a clone of the child context. Worker handlers recover th
 releases the original child context, and returns a `HandlerTasks` group. The executor can run
 the children as soon as they are submitted. Both `tasks.join().await` and `tasks.await` return one
 `TaskOutcome<Result<Output, Error>>` per branch in declaration order. Dropping the group
-or an unfinished join releases the handles under their abort-on-drop contract.
+or an unfinished join releases the handles under their abort-on-drop contract. Each branch finishes its handler and releases its context clone before reporting
+the first panic from the handler or cleanup.
 
 ### Infrastructure and application outcomes remain separate
 

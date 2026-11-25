@@ -119,8 +119,7 @@ impl TaskControl {
         if token.is_cancelled() {
             // No owner will receive an outcome for rejected work. Preserve the refusal
             // even if destroying the submitted future unwinds on a native adapter.
-            #[cfg(feature = "std")]
-            crate::completion::discard(work);
+            crate::discard(work);
             return Err(SpawnError::Cancelled);
         }
         let abort = CancellationToken::new();

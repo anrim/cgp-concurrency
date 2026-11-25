@@ -10,7 +10,7 @@ use pin_project_lite::pin_project;
 use crate::join::{BranchList, Branches, join_branches};
 use crate::runtime::{
     CanSpawnLocalTask, CanSpawnTask, HasRuntime, HasRuntimeType, LocalTaskSpawnerComponent,
-    TaskHandle, TaskOutcome, TaskSpawnerComponent,
+    TaskHandle, TaskOutcome, TaskResult, TaskSpawnerComponent, discard,
 };
 
 /// Spawns one owned task per configured handler and returns the group immediately.
@@ -109,6 +109,66 @@ where
     }
 }
 
+// An unclaimed value is released by its own cleanup operation, including before first poll.
+struct Guard<T, D: FnOnce(T)>(Option<(T, D)>);
+
+impl<T, D: FnOnce(T)> Guard<T, D> {
+    fn new(value: T, dispose: D) -> Self {
+        Self(Some((value, dispose)))
+    }
+
+    fn get(&self) -> &T {
+        &self.0.as_ref().expect("guard owns its value").0
+    }
+
+    fn take(mut self) -> T {
+        self.0.take().expect("guard owns its value").0
+    }
+}
+
+impl<T, D: FnOnce(T)> Drop for Guard<T, D> {
+    fn drop(&mut self) {
+        if let Some((value, dispose)) = self.0.take() {
+            dispose(value);
+        }
+    }
+}
+
+fn local_handler_task<H, Code, Child, Input>(
+    child: Child,
+    input: Input,
+) -> impl Future<Output = Result<H::Output, Child::Error>> + 'static
+where
+    H: Handler<Child, Code, Input>,
+    Child: HasErrorType + 'static,
+    Input: 'static,
+{
+    let child = Guard::new(child, discard);
+    let input = Guard::new(input, discard);
+    async move {
+        let work = TaskResult::capture(|| H::handle(child.get(), PhantomData, input.take()));
+        work.run().await.finish(|| drop(child.take()))
+    }
+}
+
+fn worker_handler_task<H, Code, Child, Input>(
+    child: Child,
+    input: Input,
+) -> impl Future<Output = Result<H::Output, Child::Error>> + 'static
+where
+    H: SendHandler<Child, Code, Input>,
+    Child: HasErrorType + 'static,
+    Input: 'static,
+{
+    let child = Guard::new(child, discard);
+    let input = Guard::new(input, discard);
+    async move {
+        // Construct the tag on the worker so only the child and input cross threads.
+        let work = TaskResult::capture(|| H::handle_send(child.get(), PhantomData, input.take()));
+        work.run().await.finish(|| drop(child.take()))
+    }
+}
+
 trait SpawnBranch<R, Child, Code, H, Input> {
     type Value: 'static;
 
@@ -137,7 +197,7 @@ where
         _: PhantomData<Code>,
         input: Input,
     ) -> impl TaskHandle<Self::Value> + 'static {
-        runtime.spawn_local_task(async move { H::handle(&child, PhantomData, input).await })
+        runtime.spawn_local_task(local_handler_task::<H, Code, _, _>(child, input))
     }
 }
 
@@ -158,8 +218,7 @@ where
         _: PhantomData<Code>,
         input: Input,
     ) -> impl TaskHandle<Self::Value> + 'static {
-        // Construct the code tag on the worker so only the child and input cross threads.
-        runtime.spawn_task(async move { H::handle_send(&child, PhantomData, input).await })
+        runtime.spawn_task(worker_handler_task::<H, Code, _, _>(child, input))
     }
 }
 

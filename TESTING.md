@@ -36,6 +36,7 @@ them by observing what happens when a branch's gate opens.
 | Who advances the handler? | Opening the second gate wakes the caller. Its next poll of the join advances the second handler. | `spawn` submits both children immediately. The test opens the second gate and observes the child pass it before calling `tasks.join()`. |
 | What can a branch carry? | The label borrows the caller's string across an await. | Each child owns its input and context clone. A local child returns an `Rc` on the caller's thread. A worker child returns a `Cell` from another thread. |
 | How does an application error appear? | The second slot holds `Err(InvalidRecord(17))`. | The second slot holds `TaskOutcome::Completed(Err(Rejected(17)))`. The task completed and the handler returned an error. |
+| What happens when a child panics? | The panic unwinds through the caller. | The first slot holds `TaskOutcome::Panicked`. Joining the group waits for the gated sibling and returns its application result in the second slot. |
 | What happens on drop? | Dropping the join directly drops its pending futures and retained results. | Dropping the group or a pending join drops its owned handles and requests abort. The test observes the executor reclaim both children while their gate stays shut. |
 
 Run the [caller-task join tests](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) and
@@ -51,6 +52,9 @@ cargo test --locked -p cgp-concurrency --doc
 Run the [fork handler tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs)
 on both runtimes. Each exercises `SpawnLocalTasks` and `SpawnWorkerTasks`, including moving
 the worker group to another thread to await its outcomes.
+The panic tests exercise a handler whose future panics during both polling and destruction.
+A context clone also panics on drop. The group reports the first panic, checks that the destructors
+ran outside an active unwind, and still collects the sibling's result.
 
 ```sh
 cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_handlers
@@ -98,7 +102,6 @@ of events explicitly so it also works when nextest runs a single test at a time.
 
 | Operation | How the test drives it | What must hold |
 | --- | --- | --- |
-| Child panic (v0.3) | Panic one child while its sibling waits at a gate, then let the sibling finish. | The join returns the panic and the sibling's application result in branch order. |
 | Cancel and drain a group (v0.3) | Let the local or worker children start on each runtime. Request group cancellation and hold one child's cleanup at a gate. | The wait stays pending until the gate opens and all children terminate. |
 | Partial submission (v0.3) | Exercise fallible submission on both runtimes and both providers. Cancel before the first branch, then in a separate run refuse a later branch after a child starts. Record submission attempts and child destruction. | The first case starts zero children. In the second, submission stops at the refusal and all accepted children are aborted and drained before the error returns. |
 | Bounded map (v0.4) | Set the limit to two and hold both active items at gates. Check the third has not started, then release the second and wait for the third to start while the first is still pending. Count active handlers and record the peak. | The peak is exactly two. Results, including item errors, follow input order. Empty input starts no handlers and a zero limit is rejected before any handler starts. |

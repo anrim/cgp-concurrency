@@ -23,7 +23,7 @@
 ## v0.3.0 — Fork handlers
 
 - [x] [Fork handlers](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs) on local or worker executors and join their outcomes in declaration order.
-- [ ] Preserve sibling outcomes when a child panics.
+- [x] [Preserve sibling outcomes when a child panics](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs).
 - [ ] Cancel and drain a handler group.
 - [ ] Reclaim children and retained results when a pending cancellation wait is dropped.
 - [ ] Return an owned join that can outlive its parent.

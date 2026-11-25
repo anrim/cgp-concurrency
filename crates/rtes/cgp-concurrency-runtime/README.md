@@ -23,3 +23,10 @@ Both native adapters enable the optional `std` feature to convert unwind payload
 outcomes. String payloads retain their message. An opaque payload yields `Panicked(None)`
 even if its destructor panics. If that destructor itself panics with another opaque payload,
 the adapter leaves the secondary payload allocated to avoid recursively running arbitrary destructors.
+
+When the task also owns context borrowed by the handler, construct the handler future with
+`TaskResult::capture`, await `run()`, and call `finish(|| drop(context))`. The first panic
+from construction, polling, or destruction is reported after the context has been released.
+Use `await_with_cleanup` inside a task that drives a nested handler future. With `std`
+it completes or catches a poll panic, destroys the future, and then delivers the output
+or resumes the original panic for the adapter to report.

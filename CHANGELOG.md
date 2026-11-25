@@ -6,8 +6,9 @@ All notable changes to this project are documented here.
 
 - **Fork handlers.** `spawn` submits one owned task per handler before returning. The provider
   selects local or worker execution. Both `tasks.join().await` and `tasks.await` yield one
-  typed outcome per handler in declaration order. Dropping the group or a pending join requests
-  abort for its pending children. [Fork handlers example](crates/main/cgp-concurrency/README.md#fork-handlers)
+  typed outcome per handler in declaration order. If a child panics with unwinding enabled,
+  the group waits for its siblings and reports `TaskOutcome::Panicked` in that child's slot.
+  Dropping the group or a pending join requests abort for its pending children. [Fork handlers example](crates/main/cgp-concurrency/README.md#fork-handlers)
 
 ## v0.2.0
 

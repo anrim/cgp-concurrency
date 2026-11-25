@@ -25,6 +25,97 @@ pub enum TaskOutcome<T> {
 }
 
 #[cfg(feature = "std")]
+type PanicPayload = Box<dyn Any + Send>;
+#[cfg(not(feature = "std"))]
+type PanicPayload = core::convert::Infallible;
+
+/// A task operation's result, held until its separately owned resources have been released.
+pub struct TaskResult<T>(Result<T, PanicPayload>);
+
+impl<T> TaskResult<T> {
+    /// Runs an operation, retaining its panic when unwinding is supported.
+    pub fn capture(run: impl FnOnce() -> T) -> Self {
+        #[cfg(feature = "std")]
+        return Self(std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)));
+        #[cfg(not(feature = "std"))]
+        Self(Ok(run()))
+    }
+
+    fn after_cleanup(self, cleanup: impl FnOnce()) -> Self {
+        match (self.0, TaskResult::capture(cleanup).0) {
+            (Ok(value), Ok(())) => Self(Ok(value)),
+            (Err(panic), secondary) => {
+                discard(secondary);
+                Self(Err(panic))
+            }
+            (Ok(value), Err(panic)) => {
+                discard(value);
+                Self(Err(panic))
+            }
+        }
+    }
+
+    /// Releases the remaining task state, then returns its value or resumes the first panic.
+    pub fn finish(self, cleanup: impl FnOnce()) -> T {
+        match self.after_cleanup(cleanup).0 {
+            Ok(value) => value,
+            #[cfg(feature = "std")]
+            Err(panic) => std::panic::resume_unwind(panic),
+            #[cfg(not(feature = "std"))]
+            Err(never) => match never {},
+        }
+    }
+}
+
+impl<F: Future> TaskResult<F> {
+    /// Drives a captured future. Construction, polling, and destruction unwind independently.
+    pub async fn run(self) -> TaskResult<F::Output> {
+        use core::future::poll_fn;
+        use core::pin::pin;
+        use core::task::Poll;
+
+        let future = match self.0 {
+            Ok(work) => work,
+            Err(panic) => return TaskResult(Err(panic)),
+        };
+        let mut work = pin!(Some(future));
+        let outcome = poll_fn(|cx| {
+            let future = work
+                .as_mut()
+                .as_pin_mut()
+                .expect("work is present until cleanup");
+            match TaskResult::capture(|| future.poll(cx)).0 {
+                Ok(poll) => poll.map(|value| TaskResult(Ok(value))),
+                Err(panic) => Poll::Ready(TaskResult(Err(panic))),
+            }
+        })
+        .await;
+        outcome.after_cleanup(|| work.set(None))
+    }
+}
+
+/// Drives a nested future and releases it before returning its output. With unwinding
+/// enabled, a poll panic takes precedence over a panic during destruction.
+pub async fn await_with_cleanup<F: Future>(work: F) -> F::Output {
+    TaskResult(Ok(work)).run().await.finish(|| {})
+}
+
+/// Drops one unused value during cleanup. With `std` and unwinding enabled, a panic
+/// from its destructor is contained. Discard independent values separately.
+pub fn discard<T>(value: T) {
+    #[cfg(feature = "std")]
+    {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(value))) {
+            panic_message(payload);
+        }
+    }
+    #[cfg(not(feature = "std"))]
+    drop(value);
+}
+
+#[cfg(feature = "std")]
 impl<T> TaskOutcome<T> {
     /// Converts an observed unwind into a terminal outcome. Both native adapters enable `std`.
     pub fn from_panic(payload: Box<dyn Any + Send>) -> Self {
