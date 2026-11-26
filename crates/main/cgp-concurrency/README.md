@@ -1,158 +1,218 @@
 # cgp-concurrency
 
-The facade exposes local and cross-thread task spawning and upstream CGP runtime selection through
-`cgp_concurrency::runtime` and `cgp_concurrency::prelude`. Enable a runtime feature to use its
-adapter. The default feature set is empty.
+Fork owned handler tasks on Tokio or Smol, or join handlers that borrow data in the caller’s task.
 
-| Feature | Effect |
-| --- | --- |
-| `tokio` | Re-export `cgp-concurrency-tokio` |
-| `smol` | Re-export `cgp-concurrency-smol` |
+## Installation
 
-## Join typed handlers
+From an application next to this checkout, add the facade with the runtime you use.
 
-`JoinHandlers<Product![A, B, …]>` polls all handlers in the caller's future. Wire it to
-CGP's `AsyncComputerComponent` and pass one input per handler in the same order. Each output
-slot holds that handler's own `Result`, even if another handler returns an error first. The
-join needs no runtime feature and accepts borrowed inputs and non-`Send` futures.
+```sh
+cargo add --path ../cgp-concurrency/crates/main/cgp-concurrency --features smol
+```
 
-This pipeline keeps a borrowed server label and parses a port. The next handler receives both
-results and reports the port as optional, so an invalid port still produces a labeled report.
-`Promote` lets the join serve as the first handler in `PipeHandlers`.
+The optional `smol` and `tokio` features expose the corresponding adapter modules.
+The default feature set supports caller-driven joins. To run the handler examples in
+your own application, add their CGP and executor dependencies as well.
+
+```sh
+cargo add cgp-core@0.8 cgp-handler@0.8 futures-lite@2
+```
+
+## Usage
+
+### Fork handlers
 
 ```rust
 extern crate cgp_core as cgp;
-
-use core::num::ParseIntError;
-use cgp::base::types::Cons;
 use cgp::prelude::*;
-use cgp_concurrency::prelude::JoinHandlers;
-use cgp_handler::{CanHandle, Handler, HandlerComponent, PipeHandlers, Promote, ReturnInput};
+use cgp_concurrency::CanSpawnHandlerTasks;
 
-struct App;
-impl HasErrorType for App {
-    type Error = ParseIntError;
+async fn run_pair<Code, Child, Inputs, A, B>(
+    parent: &impl CanSpawnHandlerTasks<Code, Child, Inputs, Outcomes = Product![A, B]>,
+    code: PhantomData<Code>, child: Child, inputs: Inputs,
+) -> (A, B) {
+    let tasks = parent.spawn(code, child, inputs);
+    let product![first, second] = tasks.join().await;
+    (first, second)
 }
-
-#[cgp_impl(new ParsePort)]
-#[use_type(HasErrorType.Error = ParseIntError)]
-impl<'a> Handler<(), &'a str> {
-    type Output = u16;
-
-    async fn handle(&self, _: PhantomData<()>, port: &'a str) -> Result<u16, Error> {
-        port.parse()
-    }
-}
-
-type Joined<'a> = Product![Result<&'a str, ParseIntError>, Result<u16, ParseIntError>];
-
-#[cgp_impl(new MakeReport)]
-#[use_type(HasErrorType.Error = ParseIntError)]
-impl<'a> Handler<(), Joined<'a>> {
-    type Output = (&'a str, Option<u16>);
-
-    async fn handle(&self, _: PhantomData<()>, results: Joined<'a>) -> Result<Self::Output, Error> {
-        let Cons(label, Cons(port, _)) = results;
-        Ok((label?, port.ok()))
-    }
-}
-
-type ReadEndpoint = JoinHandlers<Product![ReturnInput, ParsePort]>;
-
-delegate_and_check_components! {
-    App {
-        #[check_params(((), Product![&'static str, &'static str]))]
-        HandlerComponent: PipeHandlers<Product![Promote<ReadEndpoint>, MakeReport]>,
-    }
-}
-
-futures_lite::future::block_on(async {
-    let label = String::from("server");
-    for (port, expected) in [("443", Some(443)), ("invalid", None)] {
-        let inputs = product![label.as_str(), port];
-        let report = App.handle(PhantomData::<()>, inputs).await.unwrap();
-        assert_eq!(report, (label.as_str(), expected));
-    }
-});
 ```
 
-A join with one handler rejects an input product with two elements.
+`spawn` submits the handlers in declaration order before returning. Each child owns its
+input and a clone of the child context. Both `tasks.join().await` and `tasks.await` yield
+one `TaskOutcome<Result<Output, Error>>` per handler in that order. Dropping the group or
+a pending join requests abort for unfinished children.
 
-```compile_fail
+#### Worker handlers
+
+`SpawnLocalTasks` accepts a plain `Handler`. `SpawnWorkerTasks` requires `SendHandler`
+because its executor can move a suspended future to another thread. If your custom
+handler only implements `Handler`, use `impl_send_handler!` to forward its existing
+method. Rust checks that the returned future is `Send`. For example, holding an `Rc`
+across an `.await` would fail that check.
+
+The facade already implements `SendHandler` for `ReturnInput`. Its worker future owns
+only the input and returns it unchanged. Of the two handlers below, only `Double`
+needs a forwarding declaration.
+
+```rust
 extern crate cgp_core as cgp;
+use cgp::prelude::*;
+use cgp_concurrency::{SendHandler, impl_send_handler};
+use cgp_handler::{Handler, HandlerComponent, ReturnInput};
+use futures_lite::future::block_on;
 
+struct Child;
+impl HasErrorType for Child { type Error = (); }
+
+#[cgp_impl(new Double)]
+impl Handler<(), u32> for Child {
+    type Output = u32;
+    async fn handle(&self, _: PhantomData<()>, value: u32) -> Result<u32, ()> {
+        Ok(value * 2)
+    }
+}
+
+impl_send_handler!((Child, (), u32) for Double);
+
+let code = PhantomData::<()>;
+assert_eq!(block_on(ReturnInput::handle_send(&Child, code, 3_u32)), Ok(3));
+assert_eq!(block_on(Double::handle_send(&Child, code, 3)), Ok(6));
+```
+
+### Fallible submission
+
+```rust
+use cgp_concurrency::prelude::*;
+use core::marker::PhantomData;
+
+async fn run<Code, Child, Inputs, P: CanTrySpawnHandlerTasks<Code, Child, Inputs>>(
+    parent: &P, token: &CancellationToken, code: PhantomData<Code>, child: Child, inputs: Inputs,
+) -> Result<P::Outcomes, SpawnError> {
+    let tasks = parent.try_spawn(token, code, child, inputs).await?;
+    Ok(tasks.join().await)
+}
+```
+
+The first await attempts admission in declaration order. On refusal, submission stops and
+every accepted child receives an abort request before the parent waits for their termination.
+Cleanup releases each outcome as it becomes ready, even while a sibling is still draining.
+Dropping this wait releases the handles so the executor can finish cleanup. On success the
+group can outlive the parent. Handler errors appear in its ordered outcomes.
+
+### Cancel and drain a group
+
+```rust
+use cgp_concurrency::prelude::*;
+use std::marker::PhantomData;
+
+#[derive(Clone)]
+struct Child { cancel: CancellationToken }
+
+async fn stop<Code, Inputs, P: CanSpawnHandlerTasks<Code, Child, Inputs>>(
+    parent: &P, code: PhantomData<Code>, inputs: Inputs,
+) -> P::Outcomes {
+    let tasks = parent.spawn_cancellable(code, |cancel| Child { cancel }, inputs);
+    tasks.cancel().await
+}
+```
+
+`cancel()` signals the token immediately and returns `P::Join`. Children can await
+`cancel.cancelled()`, finish cleanup, and return their application results. A child that
+returns an error after cleanup still yields `TaskOutcome::Completed(Err(error))`. The wait
+includes children that ignore the request. Dropping it releases retained outcomes and
+requests abort for unfinished children. To signal several groups together, give their
+child contexts clones of one token through `spawn`, request cancellation, then join each group.
+
+### Join typed handlers
+
+`JoinHandlers` polls the handlers in the caller's task. Inputs can borrow local data,
+and the join returns each handler's `Result` in declaration order. This works with both
+runtime features disabled.
+
+```rust
+extern crate cgp_core as cgp;
 use cgp::prelude::*;
 use cgp_concurrency::JoinHandlers;
 use cgp_handler::{AsyncComputer, ReturnInput};
 
-async fn surplus_input(app: &impl HasErrorType) {
-    type One = JoinHandlers<Product![ReturnInput]>;
-    One::compute_async(app, PhantomData::<()>, product![42_u8, true]).await;
-}
+struct App;
+impl HasErrorType for App { type Error = core::convert::Infallible; }
+
+type Endpoint = JoinHandlers<Product![ReturnInput, ReturnInput]>;
+
+futures_lite::future::block_on(async {
+    let name = String::from("server");
+    let inputs = product![name.as_str(), 443_u16];
+    let product![label, port] = Endpoint::compute_async(&App, PhantomData::<()>, inputs).await;
+    assert_eq!(label, Ok("server"));
+    assert_eq!(port, Ok(443));
+});
 ```
 
-## Spawn owned tasks
+The handler and input products must have the same length. Dropping a pending join drops its
+branch futures and retained results. To feed the results into another handler, use
+`Promote<JoinHandlers<Jobs>>` in a `PipeHandlers` pipeline. The `JoinHandlers` type documentation
+includes a complete example with a fallible branch.
 
-A generic caller can move an `Rc` into a task and wait through a mutable borrow of its owner.
+### Spawn owned tasks
+
+The prelude re-exports `CanSpawnLocalTask` and `CanSpawnTask` for individual futures.
+Both operations submit immediately and return a handle implementing `TaskHandle<T>`.
+Await it for its `TaskOutcome<T>`, or call `drain().await` to wait through a mutable borrow.
 
 ```rust
-use core::future::Future;
-use std::rc::Rc;
+use cgp_concurrency::prelude::*;
+use std::{future::Future, rc::Rc};
 
-use cgp_concurrency::prelude::{CanSpawnLocalTask, TaskOutcome};
-
-async fn round_trip(
-    runtime: &impl CanSpawnLocalTask,
-    value: Rc<str>,
-    gate: impl Future<Output = ()> + 'static,
-) -> TaskOutcome<Rc<str>> {
-    let mut owner = runtime.spawn_local_task(async move {
+async fn local(runtime: &impl CanSpawnLocalTask, gate: impl Future<Output = ()> + 'static)
+    -> TaskOutcome<Rc<str>>
+{
+    let value: Rc<str> = Rc::from("local");
+    let mut task = runtime.spawn_local_task(async move {
         gate.await;
         value
     });
-    (&mut owner).await
+    task.drain().await
 }
 ```
 
-Use `CanSpawnTask::spawn_task` to submit a `Send + 'static` future with a `Send + 'static`
-output. The returned owner can also move between threads. Both spawn operations return
-`TaskOutcome::Completed` on completion and request cancellation when a pending owner is dropped.
+<details>
+<summary>Which futures can run on a worker?</summary>
+
+The worker future and its output must be `Send + 'static`. Rust checks the values the
+future holds across suspension, even when its output is a plain integer.
 
 ```rust
-use core::future::Future;
-use std::sync::Arc;
-use cgp_concurrency::prelude::{CanSpawnTask, TaskOutcome};
+use cgp_concurrency::prelude::*;
+use std::{future::Future, sync::Arc};
 
-async fn read_on_worker(runtime: &impl CanSpawnTask, gate: impl Future<Output = ()> + Send + 'static)
-    -> TaskOutcome<u32>
-{
+async fn read(runtime: &impl CanSpawnTask, gate: impl Future<Output = ()> + Send + 'static) {
     runtime.spawn_task(async move {
-        let value = Arc::new(42_u32);
+        let value = Arc::new(42);
         gate.await;
         *value
-    }).await
+    }).await;
 }
 ```
 
-Holding an `Rc` across the await makes the future itself non-`Send`, even when its output is a `u32`.
+Changing the captured value to an `Rc` fails the same check.
 
 ```compile_fail
-use core::future::Future;
-use std::rc::Rc;
-use cgp_concurrency::prelude::{CanSpawnTask, TaskOutcome};
+use cgp_concurrency::prelude::*;
+use std::{future::Future, rc::Rc};
 
-async fn read_on_worker(runtime: &impl CanSpawnTask, gate: impl Future<Output = ()> + Send + 'static)
-    -> TaskOutcome<u32>
-{
+async fn read(runtime: &impl CanSpawnTask, gate: impl Future<Output = ()> + Send + 'static) {
     runtime.spawn_task(async move {
-        let value = Rc::new(42_u32);
+        let value = Rc::new(42);
         gate.await;
         *value
-    }).await
+    }).await;
 }
 ```
 
-## Cancellation and failure
+</details>
+
+### Cancellation and failure
 
 Use `try_spawn_task` or `try_spawn_local_task` when the task needs to observe a request.
 Pass a token to admission and a clone to the future. The owner can request cancellation,
@@ -174,24 +234,71 @@ async fn stop_worker(runtime: &impl CanSpawnTask) -> Result<TaskOutcome<()>, Spa
 }
 ```
 
-A token cancelled before admission yields `Err(SpawnError::Cancelled)`. After admission, returning
-`Ok(value)` yields `Completed(value)`, including when the application value is itself an error.
-Returning `Err(Cancelled)` acknowledges the request. Work may ignore a request and finish normally.
+A prior cancellation returns `Err(SpawnError::Cancelled)` at admission. Once accepted,
+work that returns `Err(Cancelled)` yields `TaskOutcome::Cancelled`. A value or application
+error yields `Completed`, an unwind yields `Panicked`, and executor loss before completion
+yields `RuntimeFailure`. Calling `abort()` stops pending work at a poll boundary. Dropping
+a pending owner also requests abort. Keep the executor running to reclaim the task.
 
-Call `owner.abort()` to stop pending work at a poll boundary, then `owner.drain().await` to wait
-for destruction. Aborting after completion preserves the published outcome. Dropping a pending
-drain leaves the owner available for another wait. Dropping the owner requests native cancellation.
+## API reference
 
-An unwinding task panic yields `Panicked(message)`, with text for string payloads. Executor
-shutdown that discards an accepted task yields `RuntimeFailure`. Tokio and Smol both return
-native handles on submission, so shutdown can surface when the owner drains.
+Import `cgp_concurrency::prelude::*` for handler groups and portable task operations.
+The `runtime` module re-exports the full `cgp-concurrency-runtime` API.
 
-A polling panic takes precedence over a later panic while destroying the submitted future.
-If the future returned a value and its destructor panics, drain reports the cleanup panic.
+### Handler traits
 
-With unwinding enabled, both adapters contain destructor panics while discarding refused work or
-an unclaimed result. Once `drain()` returns `Completed(value)`, the caller owns the value and its
-destructor runs normally.
+| Consumer trait | Provider | Operation |
+| --- | --- | --- |
+| `CanSpawnHandlerTasks` | Wire `HandlerTaskSpawnerComponent` to a `HandlerTaskSpawner`. | `spawn(code, child, inputs)` returns `HandlerTasks<P::Join>` for parent type `P`. Its owned join future yields `P::Outcomes` and can outlive the parent. |
+| `CanTrySpawnHandlerTasks` | Wire `TryHandlerTaskSpawnerComponent` to a `TryHandlerTaskSpawner`. | `try_spawn(token, code, child, inputs).await` returns an owned group or the admission error after cleanup. |
+| `CanSpawnCancellableHandlerTasks` | Available on every `CanSpawnHandlerTasks` implementation. | `spawn_cancellable(code, make_child, inputs)` gives the child constructor a fresh token and returns a group with `cancel()`. |
+| `cgp_handler::CanComputeAsync` | Wire `AsyncComputerComponent` to `JoinHandlers<Jobs>`. | `compute_async(code, inputs).await` joins handlers inside the caller's task. |
 
-The [shared acceptance tests](../../tests/cgp-concurrency-tests/tests/task_ownership) exercise
-these outcomes on both local and multithreaded executors.
+With a `CanSpawnLocalTask` runtime, select `SpawnLocalTasks<Jobs>` for local handlers,
+including those holding an `Rc` across an await. With a `CanSpawnTask` runtime, select
+`SpawnWorkerTasks<Jobs>` for handlers implementing `SendHandler`. [Worker handlers](#worker-handlers)
+Both spawn providers require `'static` child contexts, inputs, outputs, and errors. Worker
+tasks also require these types and the handler future to be `Send`.
+To expose both submission methods, wire `[HandlerTaskSpawnerComponent, TryHandlerTaskSpawnerComponent]`
+to the same local or worker provider.
+
+## Provider example
+
+An application wrapper can reuse its inner context’s handler-task provider. Forward
+`spawn` and reuse its `Join` and `Outcomes` types so the returned group keeps ownership
+of the children.
+
+```rust
+extern crate cgp_core as cgp;
+use cgp::prelude::*;
+use cgp_concurrency::prelude::*;
+
+struct App<P>(P);
+
+#[cgp_impl(new ForwardTasks)]
+impl<P, Code, Child, Inputs> HandlerTaskSpawner<Code, Child, Inputs> for App<P>
+where
+    P: CanSpawnHandlerTasks<Code, Child, Inputs>,
+{
+    type Outcomes = P::Outcomes;
+    type Join = P::Join;
+
+    fn spawn(&self, code: PhantomData<Code>, child: Child, inputs: Inputs)
+        -> HandlerTasks<Self::Join>
+    {
+        self.0.spawn(code, child, inputs)
+    }
+}
+
+delegate_components! {
+    <P> App<P> { HandlerTaskSpawnerComponent: ForwardTasks }
+}
+```
+
+A provider that submits its own tasks can wrap their join future with `HandlerTasks::new(join)`.
+For a complete worker example, run the following command from the workspace root.
+It wires the worker provider directly, submits a server label and port, and joins both outcomes.
+
+```sh
+cargo run --locked -p cgp-concurrency --features smol --example fork_handlers
+```

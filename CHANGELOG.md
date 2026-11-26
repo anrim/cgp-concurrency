@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+- `impl_send_handler!` forwards a CGP handler to `SendHandler` in one declaration. Rust
+  checks that the handler future can move between worker threads. The facade implements
+  `SendHandler` for CGP's `ReturnInput`. Remove any overlapping forwarding declaration
+  for that provider when upgrading.
+- **Fork handlers.** `spawn` submits one owned task per handler before returning. The provider
+  selects local or worker execution. Both `tasks.join().await` and `tasks.await` yield one
+  typed outcome per handler in declaration order. If a child panics with unwinding enabled,
+  the group waits for its siblings and reports `TaskOutcome::Panicked` in that child's slot.
+  Dropping the group or a pending join requests abort for its pending children. [Fork handlers example](crates/main/cgp-concurrency/README.md#fork-handlers)
+- Custom `HandlerTaskSpawner` providers name their owned join future with `type Join`.
+  Generic callers can return it from `tasks.join()` or `tasks.cancel()` after dropping the parent.
+- `spawn_cancellable` supplies a fresh cancellation token to the child context.
+  `tasks.cancel().await` signals the group and collects every child's outcome after cleanup. [Cancel and drain a group](crates/main/cgp-concurrency/README.md#cancel-and-drain-a-group)
+- `parent.try_spawn(&token, code, child, inputs).await` returns an owned handler group on success.
+  A refusal stops submission and aborts and drains every accepted child before returning the error. [Fallible submission](crates/main/cgp-concurrency/README.md#fallible-submission)
+- Pending tasks use a single-waiter abort signal and store the task future and cancellation
+  listener inline. The 1,000- and 10,000-child benchmarks measured about five fewer
+  allocations per child. [CPU and heap measurements](TESTING.md#large-batches)
+
 ## v0.2.0
 
 This release targets CGP v0.8.0 and requires Rust 1.89 or later.

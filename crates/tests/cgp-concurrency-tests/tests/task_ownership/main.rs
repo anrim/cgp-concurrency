@@ -4,6 +4,8 @@
 extern crate cgp_core as cgp;
 
 mod app;
+#[path = "../support/join_notification.rs"]
+mod join_notification;
 mod local_spawn;
 mod scenarios;
 

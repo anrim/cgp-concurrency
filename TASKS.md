@@ -1,160 +1,81 @@
 # Release tasks
 
-**v0.2.0 typed-join acceptance is complete.** The facade joins borrowed handlers in the caller's
-future and returns every branch's typed result in declaration order.
-Each release runs its acceptance checks deterministically on Tokio and Smol and passes the shared
-[verification gates](CONTRIBUTING.md#verification). The [design](DESIGN.md) defines ownership,
-execution boundaries, and the bare-metal check required for a cross-target `no_std` claim.
+## v0.1.0 — Spawn owned tasks
 
-## v0.1.0 — Own a portable task from spawn to termination
+- [x] [Spawn and await local tasks](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs) that hold non-`Send` values across suspension.
+- [x] Build [deterministic task ownership fixtures](crates/tests/cgp-concurrency-tests/tests/task_ownership) for Tokio and Smol.
+- [x] [Spawn and await worker tasks](crates/main/cgp-concurrency/README.md#spawn-owned-tasks) with `Send` futures and outputs.
+- [x] Implement [Tokio](crates/rtes/cgp-concurrency-tokio) and [Smol](crates/rtes/cgp-concurrency-smol) adapters for local and worker tasks.
+- [x] Support [admission refusal, cancellation, abort, drain, and failure reporting](crates/main/cgp-concurrency/README.md#cancellation-and-failure).
+- [x] [Test cancellation races, panic precedence during cleanup, and reclamation](crates/tests/cgp-concurrency-tests/tests/task_ownership/scenarios.rs) in all four execution modes.
+- [x] [Check CGP v0.8.0 compatibility](CONTRIBUTING.md#verification) with neither, either, and both runtime features.
+- [x] [Verify CGP provider wiring and propagation of admission and application errors](crates/tests/cgp-concurrency-tests/tests/task_ownership/app.rs).
 
-### Completed
+## v0.2.0 — Join handlers
 
-- [x] **Local spawn and await.** [`cgp-concurrency-runtime`](crates/rtes/cgp-concurrency-runtime)
-  exports `CanSpawnLocalTask` and `TaskOutcome`. The shared
-  [acceptance test](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs)
-  runs a generic caller on Tokio and Smol, holds an `Rc` across suspension, and recovers the
-  same allocation as `Completed` through a mutable borrow of the owned handle.
-- [x] **Conformance fixtures.** The [shared suite](crates/tests/cgp-concurrency-tests) uses a
-  first-poll signal, a completion gate, and a destruction witness to check task ownership on both
-  providers. Run it with `cargo nextest run --locked -p cgp-concurrency-tests --all-features`.
-- [x] **Cross-thread spawn and await.** `CanSpawnTask` accepts a `Send + 'static` future and
-  output. The [facade examples](crates/main/cgp-concurrency/README.md) compile with an `Arc` and
-  verify that the compiler rejects an `Rc` held across an await at the cross-thread call.
-- [x] **Tokio and Smol spawn adapters.** Both local executors accept an `Rc`. The
-  [multithreaded cases](TESTING.md#run-the-conformance-suite) drive the public adapters on worker
-  threads, recover a completed value, and observe reclamation after dropping a pending owner.
+- [x] [Join handlers in the caller’s task](crates/main/cgp-concurrency/src/join.rs) with borrowed inputs and non-`Send` futures.
+- [x] [Test branch wakeups and typed result order](crates/tests/cgp-concurrency-tests/tests/typed_join.rs), including application errors.
+- [x] [Bound join storage](crates/tests/cgp-concurrency-tests/tests/typed_join_layout.rs) to one pending future or completed result per branch.
+- [x] [Test three interleaved branches](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs) with a borrowed result and distinct errors.
+- [x] [Compose a join with a reporting handler](crates/main/cgp-concurrency/src/join.rs) using `PipeHandlers`.
+- [x] [Check typed joins in CI](.github/workflows/tests.yml) with no runtime, each provider separately, and the full workspace.
 
-- [x] **Cancellation and failure.** Fallible spawn refuses a previously cancelled token.
-  Accepted tasks can acknowledge or ignore cooperative requests. The owner can abort and drain
-  them. Completion preserves application errors, and both adapters distinguish cancellation,
-  an observed panic, and executor loss. [Facade API](crates/main/cgp-concurrency/README.md#cancellation-and-failure)
+## v0.3.0 — Fork handlers
 
-### Release acceptance
+- [x] [Fork handlers](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs) on local or worker executors and join their outcomes in declaration order.
+- [x] [Preserve sibling outcomes when a child panics](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs).
+- [x] [Cancel and drain a handler group](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs).
+- [x] [Reclaim children and retained results when a pending cancellation wait is dropped](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs).
+- [x] [Return an owned join](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs) that can outlive its parent.
+- [x] [Benchmark spawn and join](crates/tests/cgp-concurrency-tests/benches/spawn_join.rs) for one and eight handlers on both runtimes and executor types.
+- [x] Document the public API in the [crate guides](README.md#workspace) and provide a [runnable fork/join example](crates/main/cgp-concurrency/examples/fork_handlers.rs).
+- [x] [Submit handlers with `parent.try_spawn(...)`](crates/main/cgp-concurrency/README.md#fallible-submission) and abort and drain accepted children on refusal.
+- [x] [Declare `SendHandler` forwarding](crates/main/cgp-concurrency/src/fork.rs) in one line for custom handlers and [use `ReturnInput` directly on workers](crates/main/cgp-concurrency/examples/fork_handlers.rs).
+- [x] [Measure and reduce CPU and memory per task](TESTING.md#large-batches) for 1,000 and 10,000 children across spawn, join, cancel-and-drain, and abort-on-drop.
 
-- [x] Shared facade scenarios passed in all four execution modes, including both race winners,
-  requests before and after waiter registration, abort followed by drain, and reclamation after
-  drop. Both adapters preserved the refusal when cleanup panicked and reclaimed unclaimed task
-  results when their destructors panicked. Polling a pending owner left unrelated queued work untouched.
-- [x] The workspace builds against published CGP v0.8.0. The portable caller passed with each
-  provider enabled separately and both together. The [full release checks](CONTRIBUTING.md#verification) passed.
-- [x] Both spawn components passed through [checked CGP application wiring](crates/tests/cgp-concurrency-tests/tests/task_ownership/app.rs).
-  The caller converted a refusal into its own error type and recovered an application error inside `Completed`.
-  Drain preserved the original polling panic when task destruction also panicked.
+## v0.4.0 — Map collections
 
-## v0.2.0 — Join typed handlers in the current task
+- [ ] Adapt CGP’s `BoundedParallel` from `feature/concurrent-handlers` at `afa7224a` (`crates/extra/cgp-handler-parallel/src/bounded.rs`). Reuse its `FuturesUnordered` refill loop and indexed result slots to map finite inputs with a positive concurrency limit and return results in input order.
+- [ ] [Test bounded admission](TESTING.md#how-we-will-test-parallel-handlers) with empty input, a zero limit, and two gated handlers completing out of order.
 
-### Completed
+## v0.5.0 — Run blocking work
 
-- [x] [`JoinHandlers`](crates/main/cgp-concurrency/src/join.rs) joins a fixed list of handlers in
-  the caller's future. Branches may borrow local data and hold non-`Send` values across suspension.
-- [x] The [facade acceptance test](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) held both
-  branches pending, finished the second with an application error, and recovered both typed results
-  in declaration order. Both gates woke the caller on Tokio, on Smol, and with no runtime feature.
-- [x] Store one pending future or completed result per branch. With 1 KiB outputs at 4, 8, and 16
-  branches, the [layout regression test](crates/tests/cgp-concurrency-tests/tests/typed_join_layout.rs)
-  measured 4,160, 8,288, and 16,544 bytes, down from 10,480, 37,328, and 140,240 bytes
-  (optimized Rust 1.100.0 on aarch64 macOS).
+- [ ] Adapt `CanOffloadBlocking` from the CGP runtime experiment at `95fb7af1` (`crates/cgp-runtime/src/core/blocking.rs`). Submit `Send + 'static` closures through Tokio’s `Handle::spawn_blocking` and Smol’s `unblock`, holding a slot from admission until the native closure exits.
+- [ ] Test cancellation with one running closure and one waiting for admission. Verify the waiting closure never starts, drain waits for the running closure to exit, and async work can progress.
 
-### Release acceptance
+## v0.6.0 — Run dependency graphs
 
-- [x] The [three-branch scenario](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs)
-  held all branches pending, completed them middle, last, then first, and recovered two distinct
-  application errors and a borrowed value in declaration order on all three callers.
-- [x] The [facade doctest](crates/main/cgp-concurrency/README.md#join-typed-handlers) runs the join
-  inside `PipeHandlers`. The reporting handler recovers the borrowed label with both a valid and
-  an invalid port.
-- [x] The typed-join [PR checks](https://github.com/anrim/cgp-concurrency/pull/1/checks) cover
-  the no-runtime join, each provider separately, and the full workspace suite.
+- [ ] Validate a fixed graph of heterogeneous nodes with dependency-only edges. Reject cycles and unknown dependencies before starting work.
+- [ ] Run ready nodes within a concurrency limit and test that a diamond dependency waits for both predecessors.
+- [ ] Stop admission on node failure, drain running siblings, and report the failure without starting dependent nodes.
 
-## v0.3.0 — Run handler branches as owned child tasks
+## v0.7.0 — Connect handler stages
 
-- [ ] Apply the typed join to independently spawned children using v0.1.0 handles. Support local
-  children and recover `Send` only for work crossing threads.
-- [ ] Cancel a fork with children pending. Verify that admission stops and the parent drains every
-  child before returning. Panic one child in a separate run and verify the join reports its panic
-  and each sibling's terminal outcome in branch order.
-- [ ] Fail a later spawn after one child has started. Stop spawning, abort and drain the owned
-  children, then return the spawn failure.
+- [ ] Connect stages with bounded channels, propagate backpressure upstream, and drain accepted items when input closes.
+- [ ] Test ordered delivery after a consumer resumes and verify the final item arrives before the pipeline returns.
+- [ ] Test cancellation, downstream closure, and middle-stage failure during a pending send. Wake blocked operations, drain stages, and propagate the stage error.
 
-## v0.4.0 — Map a collection with bounded concurrency
+## v0.8.0 — Map streams
 
-- [ ] Run one handler over a finite input sequence with a positive concurrency limit. Return every
-  result in input order, including item errors.
-- [ ] Reject a zero limit before starting work. Fill all slots, then finish items out of order,
-  including a failure. Check peak concurrency and the returned sequence. The limit bounds active
-  handlers. The result collection grows with the input. Empty input starts no work.
+- [ ] Map an open stream in completion order, counting active handlers and buffered results against one limit.
+- [ ] Test early delivery, backpressure from a paused consumer, and cancellation and drain of in-flight work.
 
-## v0.5.0 — Run blocking closures with bounded admission
+## v0.9.0 — Merge streams
 
-- [ ] Expose a portable blocking operation through `cgp-concurrency-runtime` that submits
-  `Send + 'static` closures to each provider's native pool. Reserve a slot before submission
-  and hold it until the native job terminates, including time queued in the pool.
-- [ ] With one slot, hold a running closure at a barrier and a second submission waiting for admission.
-  Request cancellation of both. The waiting closure never starts, and drain returns only after
-  the running closure exits. Verify an async task makes progress while the closure is blocked.
+- [ ] Merge a fixed set of inputs with round-robin selection among ready inputs. Skip closed inputs and finish when all are exhausted.
+- [ ] Test wakeups, service of a newly ready input within one rotation, and delivery of buffered items before end-of-stream.
 
-## v0.6.0 — Run a finite dependency graph
+## v0.10.0 — Route stream items
 
-- [ ] Validate a fixed graph of heterogeneous nodes with dependency-only edges. Reject a cycle or
-  unknown dependency before any node starts.
-- [ ] Run ready nodes within a concurrency limit. In a diamond graph, hold one predecessor pending
-  after the other finishes and verify their dependent waits.
-- [ ] Fail a node while a sibling runs. Stop admission, drain running nodes, and report the failure.
-  Verify the failed node's dependents never start.
+- [ ] Route each item to a caller-selected bounded output in order. Pause intake while its destination is full.
+- [ ] Test that other outputs can drain while a send waits and that closing the selected destination wakes the sender with an error.
 
-## v0.7.0 — Connect handlers in a bounded linear pipeline
+## v0.11.0 — Balance jobs
 
-- [ ] Connect a chain of handler stages with bounded channels. Propagate backpressure upstream and
-  drain accepted items on normal input close.
-- [ ] Pause the consumer until a send waits, then resume it and observe delivery in order. Close
-  input and verify the last item arrives before the pipeline returns.
-- [ ] With a send pending, cancel the pipeline, close the downstream stage, and fail a middle stage
-  in separate runs. Verify blocked operations wake and every stage exits. In the failure case,
-  return the stage error after draining.
+- [ ] Dispatch to a worker with capacity and wait when all are full. Transfer ownership on enqueue so cancelling a waiting submission leaves the job unexecuted.
+- [ ] Test dispatch past a saturated worker and shutdown during admission. Verify rejection before enqueue or exactly one terminal outcome for each accepted job.
 
-## v0.8.0 — Transform a stream concurrently
+## v0.12.0 — Partition jobs by key
 
-- [ ] Apply a handler to an open stream and yield ready results as they finish. Count running work
-  and buffered results against one limit so a slow consumer bounds upstream admission.
-- [ ] Hold the first item pending and observe a later result before the input closes. Pause the
-  consumer, verify admission stops at the limit, then cancel and drain the in-flight work.
-
-## v0.9.0 — Merge ready streams fairly
-
-- [ ] Merge a fixed set of inputs into one output. Use round-robin selection among ready inputs,
-  skip closed inputs, and end the output when all inputs are exhausted.
-- [ ] Start with all inputs pending and make one ready to verify the merger wakes. Keep it busy
-  while a second becomes ready and serve the second within one rotation. Close both with items
-  buffered and verify those items arrive before end-of-stream.
-
-## v0.10.0 — Route stream items to fixed destinations
-
-- [ ] Route each item to one caller-selected bounded output. Preserve order within each output.
-  When the selected output fills, pause upstream intake until the pending item can be delivered.
-- [ ] Fill one output and route another item to it. Verify the item waits for that destination,
-  other consumers can drain already-routed items, and closing the destination wakes the pending
-  sender with an error.
-
-## v0.11.0 — Balance jobs across a fixed local worker pool
-
-- [ ] Dispatch to a worker with capacity and wait when all are full. Enqueuing the job transfers
-  ownership to the pool. Cancelling a submission before enqueue leaves the job unexecuted.
-- [ ] Saturate one worker and verify another accepts the next job. Race shutdown against a waiting
-  submission. Check that it is either rejected before enqueue or produces one terminal outcome.
-  Verify every previously accepted job also reports exactly one outcome.
-
-## v0.12.0 — Process jobs in order by key
-
-- [ ] Map each key to a fixed partition for the lifetime of the pool. Process its jobs serially in
-  acceptance order, including when two callers submit the same key concurrently.
-- [ ] Hold one job pending and submit another with the same key. Verify it waits while an admitted
-  job in another partition progresses. Skew input toward one partition and verify its queue stays
-  bounded under the routing backpressure policy.
-
-## Deferred work
-
-Remote execution, detached tasks, supervisor trees, retry, hedging, speculative execution, full
-Rayon semantics, library-owned work stealing, live typed values on graph edges, dynamic worker
-membership, adaptive balancing, partition resizing, and durable stream state remain deferred.
-Revisit an item when it has an owner, a portable contract, and independent user value.
+- [ ] Keep each key on a fixed partition for the pool’s lifetime and process its jobs serially in acceptance order, including concurrent submissions.
+- [ ] Test independent progress across partitions and bounded queues under skewed input and routing backpressure.

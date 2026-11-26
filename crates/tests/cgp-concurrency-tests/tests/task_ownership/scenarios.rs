@@ -1,10 +1,9 @@
 use std::cell::Cell;
 use std::fmt::Debug;
 use std::future::Future;
-use std::pin::{Pin, pin};
+use std::pin::pin;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::task::{Context, Poll, Wake, Waker};
+use std::task::{Context, Poll};
 use std::thread::{self, ThreadId};
 
 use async_channel::{Receiver, Sender, bounded};
@@ -12,6 +11,7 @@ use cgp_concurrency::prelude::*;
 use futures_lite::future;
 
 use crate::app::{App, check_errors};
+use crate::join_notification::{join_notification, wake_channel};
 
 pub(super) struct PanicOnDrop;
 
@@ -233,34 +233,13 @@ pub async fn cross_thread(runtime: impl CanSpawnTask) {
     .await;
 }
 
-struct JoinWaker(Sender<()>);
-
-impl Wake for JoinWaker {
-    fn wake(self: Arc<Self>) {
-        let _ = self.0.try_send(());
-    }
-}
-
-fn join_notification(owner: &mut (impl Future + Unpin)) -> Receiver<()> {
-    let (signal, published) = bounded(1);
-    let waker = Waker::from(Arc::new(JoinWaker(signal)));
-    assert!(
-        Pin::new(owner)
-            .poll(&mut Context::from_waker(&waker))
-            .is_pending()
-    );
-    published
-}
-
 #[test]
 fn one_request_wakes_two_registered_waiters() {
     let token = CancellationToken::new();
     let mut first = pin!(token.cancelled());
     let mut second = pin!(token.cancelled());
-    let (send_first, wake_first) = bounded(1);
-    let (send_second, wake_second) = bounded(1);
-    let first_waker = Waker::from(Arc::new(JoinWaker(send_first)));
-    let second_waker = Waker::from(Arc::new(JoinWaker(send_second)));
+    let (first_waker, wake_first) = wake_channel();
+    let (second_waker, wake_second) = wake_channel();
     let mut first_cx = Context::from_waker(&first_waker);
     let mut second_cx = Context::from_waker(&second_waker);
     assert!(first.as_mut().poll(&mut first_cx).is_pending());

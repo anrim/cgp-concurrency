@@ -23,5 +23,5 @@ pub use completion::{TaskCompletion, UnclaimedOutput};
 pub use task::panic_message;
 pub use task::{
     CanSpawnLocalTask, CanSpawnTask, LocalTaskSpawner, LocalTaskSpawnerComponent, TaskOutcome,
-    TaskSpawner, TaskSpawnerComponent,
+    TaskResult, TaskSpawner, TaskSpawnerComponent, await_with_cleanup, discard,
 };

@@ -16,5 +16,8 @@ readme = "README.md"
 cgp-concurrency-runtime = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["rt"] }
 
+[dev-dependencies]
+cgp-core = { workspace = true }
+
 [lints]
 workspace = true

@@ -4,6 +4,7 @@
 
 extern crate cgp_core as cgp;
 
+mod fork;
 mod join;
 
 pub use cgp_concurrency_runtime as runtime;
@@ -11,14 +12,30 @@ pub use cgp_concurrency_runtime as runtime;
 pub use cgp_concurrency_smol as smol;
 #[cfg(feature = "tokio")]
 pub use cgp_concurrency_tokio as tokio;
+pub use fork::{
+    CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks, CanTrySpawnHandlerTasks,
+    HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks, SendHandler, SpawnLocalTasks,
+    SpawnWorkerTasks, TryHandlerTaskSpawner, TryHandlerTaskSpawnerComponent,
+};
 pub use join::JoinHandlers;
 
+#[doc(hidden)]
+pub mod __private {
+    pub use cgp::prelude::HasErrorType;
+    pub use cgp_handler::Handler;
+}
+
 pub mod prelude {
-    pub use crate::JoinHandlers;
     pub use crate::runtime::{
         CanSpawnLocalTask, CanSpawnTask, CancellationToken, Cancelled, HasRuntime, HasRuntimeType,
         LocalTaskSpawner, LocalTaskSpawnerComponent, RuntimeGetter, RuntimeGetterComponent,
         RuntimeOf, RuntimeTypeProvider, RuntimeTypeProviderComponent, SpawnError, TaskHandle,
         TaskOutcome, TaskSpawner, TaskSpawnerComponent,
+    };
+    pub use crate::{
+        CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks, CanTrySpawnHandlerTasks,
+        HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks, JoinHandlers, SendHandler,
+        SpawnLocalTasks, SpawnWorkerTasks, TryHandlerTaskSpawner, TryHandlerTaskSpawnerComponent,
+        impl_send_handler,
     };
 }

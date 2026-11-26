@@ -26,7 +26,22 @@ Run the public worker-spawn cases on both providers.
 cargo nextest run --locked -p cgp-concurrency-tests --all-features -j 1 -E 'test(multithread)'
 ```
 
-For typed joins, run both the behavior and future-size tests. The facade doctests exercise
+## Join handlers and fork handlers
+
+Both joins return one typed result per handler in declaration order. The tests distinguish
+them by observing what happens when a branch's gate opens.
+
+| What the test observes | Join handlers (`JoinHandlers`, v0.2.0) | Spawn then join (`CanSpawnHandlerTasks`, v0.3.0) |
+| --- | --- | --- |
+| Who advances the handler? | Opening the second gate wakes the caller. Its next poll of the join advances the second handler. | `spawn` submits both children immediately. The test opens the second gate and observes the child pass it before calling `tasks.join()`. |
+| What can a branch carry? | The label borrows the caller's string across an await. | Each child owns its input and context clone. A local child returns an `Rc` on the caller's thread. A worker child returns a `Cell` from another thread. |
+| How does an application error appear? | The second slot holds `Err(InvalidRecord(17))`. | The second slot holds `TaskOutcome::Completed(Err(Rejected(17)))`. The task completed and the handler returned an error. |
+| What happens when a child panics? | The panic unwinds through the caller. | The first slot holds `TaskOutcome::Panicked`. Joining the group waits for the gated sibling and returns its application result in the second slot. |
+| What happens on drop? | Dropping the join directly drops its pending futures and retained results. | Dropping the group or a pending join drops its owned handles and requests abort. The test observes the executor reclaim both children while their gate stays shut. |
+
+Run the [caller-task join tests](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) and
+their future-size check. The [three-handler case](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs)
+releases the middle, last, and first handler on successive wakeups. The facade doctests exercise
 composition with `PipeHandlers` and check that surplus inputs fail to compile.
 
 ```sh
@@ -34,20 +49,56 @@ cargo nextest run --locked -p cgp-concurrency-tests --all-features --test typed_
 cargo test --locked -p cgp-concurrency --doc
 ```
 
-## What runs today
+Run the [fork handler tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers.rs)
+on both runtimes. Each exercises `SpawnLocalTasks` and `SpawnWorkerTasks`, including moving
+two worker groups to another thread. Cancelling one group leaves the other group's token
+clear, and workers that ignore the request return their application results.
+The panic tests exercise a handler whose future panics during both polling and destruction.
+A context clone also panics on drop. The group reports the first panic, checks that the destructors
+ran outside an active unwind, and still collects the sibling's result.
 
-The [typed join test](crates/tests/cgp-concurrency-tests/tests/typed_join.rs) holds both handlers
-at separate gates, then lets the second return an application error. Each gate must wake the
-caller. The first handler returns an `Rc` borrowing the caller's string, and both results arrive
-in declaration order. A [three-branch case](crates/tests/cgp-concurrency-tests/tests/typed_join/interleaved.rs)
-opens the middle, last, and first gates on successive wakeups and checks both distinct errors
-and the borrowed value.
+The `impl_send_handler!` doctests exercise the worker's `Send` bound with a `u32` input
+and output. The handler holds an `Arc` across an await in the passing case and an `Rc`
+in the compile-fail case. The fork tests also run a worker handler with a `Cell` in its
+child context and a local handler with an `Rc`.
+
+The [admission tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers/admission.rs) check
+prior cancellation and join a successful group after dropping its parent. They check that
+empty and nonempty groups remain joinable when the original child context panics on drop.
+Dropping a submission before its first poll releases the context and every input with zero
+provider calls. Both prior cancellation and a provider refusal release an unpolled handler's context and input,
+even when each destructor panics.
+A controlled spawner refuses the third branch. Destructors for the unused child context and both remaining inputs
+panic during cleanup. Both accepted handles must receive abort before either drain starts.
+The test opens the first drain gate and waits for its completion signal while the second gate
+stays closed. On a worker, the first child’s completed output must already be released.
+The test then either drops the wait and observes reclamation, or opens the second gate and
+checks that both children have terminated when the admission error returns.
+
+```sh
+cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_handlers
+```
+
+Run just the [cancellation tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers/cancellation.rs)
+with the filter below. Both children observe `tasks.cancel()` before the caller polls its
+returned future. The second finishes first, and the caller waits for the first child's
+cleanup before receiving both results in declaration order. The drop tests let one child
+return a value whose destructor signals and panics, and hold its sibling at a cleanup gate.
+After a join or cancellation wait retains that value and returns `Pending`, the caller drops
+the wait. The tests observe the value's destruction and the sibling's reclamation with the gate shut.
+
+```sh
+cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_handlers -E 'test(cancellation::)'
+```
+
+## Task ownership tests
 
 The local-spawn test holds an `Rc` across an await on Tokio's `LocalSet` and Smol's `LocalExecutor`.
 It calls the public spawn component through a test application's compile-time checked CGP wiring.
 It observes a pending handle, releases the task, then checks that the returned `Rc` points to
-the original allocation. A second case drops a pending owner and waits for the task's channel
-receiver to be destroyed. [Local-spawn acceptance tests](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs)
+the original allocation. Dropping a pending owner must destroy its channel receiver.
+Aborting before the first poll must drop the captured sender and return `Cancelled`
+without entering the task body. [Local-spawn acceptance tests](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs)
 
 The multithreaded cases submit work through `CanSpawnTask` on a Tokio runtime handle and a Smol
 executor with two workers. The test application wires each spawn component independently and
@@ -83,10 +134,106 @@ of events explicitly so it also works when nextest runs a single test at a time.
 
 | Operation | How the test drives it | What must hold |
 | --- | --- | --- |
-| Join of spawned children (v0.3) | Run the same scenarios on Tokio and Smol with local and cross-thread tasks. In separate cases cancel the parent, panic a child, and refuse a later spawn after a child has started. Record child starts, outcomes, and destruction. | Cancellation and spawn refusal stop admission. The parent drains every accepted child before it returns. A child panic is observable in its branch's result. |
 | Bounded map (v0.4) | Set the limit to two and hold both active items at gates. Check the third has not started, then release the second and wait for the third to start while the first is still pending. Count active handlers and record the peak. | The peak is exactly two. Results, including item errors, follow input order. Empty input starts no handlers and a zero limit is rejected before any handler starts. |
 
 For cross-thread cases, use atomics for counts and channels or barriers for handoffs.
+
+## Benchmark spawn and join
+
+The `spawn_join` benchmark measures one complete `parent.spawn(...).join().await` for
+groups of one or eight handlers. Each handler immediately returns its integer input.
+Criterion reports elapsed time per group and throughput in child tasks per second.
+Each sample reuses its executor across iterations. Executor startup, shutdown, and a check
+of every child's result sit outside the timed loop.
+
+From the workspace root, save a baseline before changing a feature, then compare on the
+same machine with the same Rust toolchain and runtime configuration.
+
+```sh
+export CRITERION_HOME="$PWD/target/criterion"
+cargo bench --locked -p cgp-concurrency-tests --all-features --bench spawn_join -- --save-baseline fork-handlers
+# After the change
+cargo bench --locked -p cgp-concurrency-tests --all-features --bench spawn_join -- --baseline fork-handlers
+```
+
+Setting `CRITERION_HOME` gives both runs the same baseline directory. Compare each case
+with its own baseline. The local cases use the calling thread. The worker cases use the shared
+test fixtures with two Tokio worker threads and one Smol worker thread.
+
+### Large batches
+
+`task_batches` submits groups of eight until 1,000 or 10,000 children are pending.
+The direct comparison runs the same handler on the same executor using individual task
+handles. Each sample waits for every child to register at its gate before finishing.
+
+| Path | What the benchmark verifies |
+| --- | --- |
+| Join | Open the shared gate and collect every child's input index in declaration order. |
+| Cancel and drain | Signal every group before draining the first. Each child observes its group's request and returns its index. |
+| Abort on drop | Drop every owner with the gate closed and wait for the executor to destroy the last child's input. |
+
+Run the two profiles separately on an idle machine. Each prints five samples per case as CSV.
+
+```sh
+cargo bench --locked -p cgp-concurrency-tests --features tokio,smol --bench task_batches > cpu.csv
+cargo bench --locked -p cgp-concurrency-tests --all-features --bench task_batches > heap.csv
+```
+
+The first run records process CPU across all threads for submission, waiting for all
+children to park, and finishing. Worker execution can overlap submission. The heap run
+counts allocations and peak live bytes above the executor's starting level per child.
+Its final column reports excess live bytes for the **whole batch** immediately after
+reclamation, while the executor can still retain queue storage. Use the first run for
+timing comparisons because the heap counters add work to every allocation.
+
+#### Fork handlers baseline
+
+The optimization commit and its parent contain identical benchmark sources and fixtures.
+From the repository root, run the command block below on an idle machine. It exports both
+revisions to temporary directories, uses each revision's pinned toolchain and lockfile,
+and writes the commit IDs and raw CSV files to the printed results directory.
+
+```sh
+(
+set -eu
+after=$(git log -1 --format=%H --grep='^Reduce per-task overhead for large handler batches$')
+test -n "$after"
+before=$(git rev-parse "$after^")
+results=$(mktemp -d)
+echo "Results in $results"
+export CARGO_TARGET_DIR="$PWD/target"
+for side in before after; do
+    case "$side" in before) revision=$before ;; after) revision=$after ;; esac
+    mkdir "$results/$side"
+    git archive "$revision" | tar -x -C "$results/$side"
+    echo "$revision" > "$results/$side.commit"
+done
+for run in before-1 after-1 after-2 before-2; do
+    side=${run%-*}
+    (cd "$results/$side" && cargo bench --locked -p cgp-concurrency-tests --features tokio,smol --bench task_batches) > "$results/$run.cpu.csv"
+done
+for side in before after; do
+    (cd "$results/$side" && cargo bench --locked -p cgp-concurrency-tests --all-features --bench task_batches) > "$results/$side.heap.csv"
+done
+)
+```
+
+The table uses 10,000-child rows with `api=group`. For each executor and finish mode,
+sum the three CPU columns in each row and take the median across the ten samples for each
+revision. Join peak is the median of the five `peak_bytes_per_child` values from the heap run.
+
+The arm64 macOS run with Rust 1.100.0 produced these before → after medians.
+
+| Executor | Join (ns/child) | Cancel and drain (ns/child) | Abort on drop (ns/child) | Join peak (bytes/child) |
+| --- | ---: | ---: | ---: | ---: |
+| Tokio local | 348 → 292 | 365 → 310 | 300 → 248 | 1005 → 821 |
+| Tokio worker | 974 → 1207 | 894 → 1134 | 883 → 1158 | 992 → 808 |
+| Smol local | 414 → 337 | 432 → 352 | 371 → 301 | 859 → 691 |
+| Smol worker | 670 → 605 | 603 → 577 | 469 → 500 | 860 → 692 |
+
+The optimization saved about five allocations per child in every measured configuration.
+Local CPU fell on all three paths. Tokio workers used more CPU on all three, and Smol
+workers used more CPU on abort. The table records those tradeoffs for future comparisons.
 
 ## CI checks
 

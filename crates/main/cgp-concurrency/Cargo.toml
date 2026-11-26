@@ -12,6 +12,10 @@ categories = { workspace = true }
 description = "Runtime-neutral concurrency components for Context-Generic Programming."
 readme = "README.md"
 
+[[example]]
+name = "fork_handlers"
+required-features = ["smol"]
+
 [features]
 default = []
 smol = ["dep:cgp-concurrency-smol"]

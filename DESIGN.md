@@ -79,6 +79,55 @@ The caller's future drives all branches and retains one typed result per complet
 Awaiting the join returns every result in declaration order, including application errors.
 Dropping the join discards retained results and drops pending branch futures.
 
+### Fork handlers
+
+`CanSpawnHandlerTasks` separates task submission from joining. The parent wires
+`HandlerTaskSpawnerComponent` to either `SpawnLocalTasks<Jobs>` or `SpawnWorkerTasks<Jobs>`.
+Both take the same product of handler providers and use the parent's selected runtime. Each
+child owns an input and a clone of the child context. Worker handlers recover the future's
+`Send` bound through `SendHandler`. The `impl_send_handler!` declaration forwards the existing
+handler future directly. A worker can own a `Send` child context that is not `Sync` when the
+returned future does not retain a shared reference to it. Local handlers can retain non-`Send` state.
+
+`spawn` submits every child synchronously through the infallible spawn operations,
+releases the original child context, and returns a `HandlerTasks` group. The executor can run
+the children as soon as they are submitted. Both `tasks.join().await` and `tasks.await` return one
+`TaskOutcome<Result<Output, Error>>` per branch in declaration order. Dropping the group
+or an unfinished join releases the handles under their abort-on-drop contract. On native
+runtimes with unwinding enabled, the group guards each retained outcome until it returns the
+whole product. Each branch finishes its handler and releases its context clone before reporting
+the first panic from the handler or cleanup. Submission also guards the original child context.
+
+`CanTrySpawnHandlerTasks` uses a separate component wired to the same local or worker provider.
+Polling `parent.try_spawn(&token, code, child, inputs)` admits branches in declaration order with
+the caller's token. An empty group succeeds immediately. The first refusal stops submission.
+All accepted handles receive abort before cleanup drains them together. Cleanup discards each
+outcome as its handle becomes ready and returns the admission error after all have terminated.
+On Tokio and Smol with panic unwinding enabled, releasing the original child context preserves
+both successful admission and refusal. Cleanup also contains destructor panics from each
+unsubmitted input. A refused future disposes of its captured context clone and input
+independently. Dropping an unpolled submission releases the original context and each input
+without calling the provider. Dropping a submission during rollback releases its handles and
+the executor reclaims the children. Success returns the same owned join as ordinary submission. Pass a
+clone of the token into the child context when the handler needs to observe cancellation after
+admission.
+
+For cooperative cancellation, `spawn_cancellable` gives the child-context constructor a fresh
+`CancellationToken` and uses the same configured spawner. The returned group owns a clone
+of the token. Calling `tasks.cancel()` signals it immediately and returns the join future.
+Handlers can observe the request, perform async cleanup, and return their application results.
+The join waits for every child even if a handler ignores the request. Dropping a pending
+cancellation wait releases retained outcomes and requests abort for every unfinished child,
+even during cleanup. The spawner's `Join` associated type lets a generic caller return
+the owned wait after dropping the parent.
+
+### Fork and join at the call site
+
+The Smol-inspired fork API puts these goals into practice. `parent.spawn(code, child, inputs)`
+submits work and returns the group that owns it. `tasks.join().await` shows where the caller
+waits. Provider wiring selects local or worker execution, so both use the same call site.
+[Runnable example](crates/main/cgp-concurrency/examples/fork_handlers.rs)
+
 ### Infrastructure and application outcomes remain separate
 
 The portable task outcome has four variants.

@@ -1,3 +1,6 @@
+//! `JoinHandlers` polls borrowed handler futures inside the caller's task.
+//! Opening a gate wakes that task so its next poll can advance the ready handler.
+
 extern crate cgp_core as cgp;
 
 #[path = "typed_join/interleaved.rs"]
@@ -173,13 +176,13 @@ async fn caller_scenarios() {
 }
 
 #[test]
-fn caller_future() {
+fn caller_polls_borrowed_handlers() {
     future::block_on(caller_scenarios());
 }
 
 #[cfg(feature = "tokio")]
 #[test]
-fn tokio_caller_future() {
+fn tokio_caller_polls_borrowed_handlers() {
     tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
@@ -188,6 +191,6 @@ fn tokio_caller_future() {
 
 #[cfg(feature = "smol")]
 #[test]
-fn smol_caller_future() {
+fn smol_caller_polls_borrowed_handlers() {
     smol::block_on(caller_scenarios());
 }
