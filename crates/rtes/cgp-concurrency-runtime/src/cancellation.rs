@@ -5,6 +5,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
 
 use event_listener::Event;
+use futures_util::future::{AbortHandle, Abortable};
 use pin_project_lite::pin_project;
 
 use crate::TaskOutcome;
@@ -40,7 +41,7 @@ impl CancellationToken {
     /// Waits for a request and returns the marker a task can use to acknowledge it.
     pub async fn cancelled(&self) -> Cancelled {
         if !self.is_cancelled() {
-            let listener = self.0.event.listen();
+            event_listener::listener!(self.0.event => listener);
             // A request between the initial check and registration must also be observed.
             if !self.is_cancelled() {
                 listener.await;
@@ -75,7 +76,7 @@ impl core::error::Error for SpawnError {}
 /// The signals shared by a provider's task owner and its scheduled future.
 pub struct TaskControl {
     cooperative: CancellationToken,
-    abort: CancellationToken,
+    abort: AbortHandle,
 }
 
 pin_project! {
@@ -122,26 +123,20 @@ impl TaskControl {
             crate::discard(work);
             return Err(SpawnError::Cancelled);
         }
-        let abort = CancellationToken::new();
+        let (abort, registration) = AbortHandle::new_pair();
         let control = Self {
             cooperative: token.clone(),
-            abort: abort.clone(),
+            abort,
         };
-        let run = futures_lite::future::or(
-            async move {
-                abort.cancelled().await;
-                TaskOutcome::Cancelled
+        // Retain the submitted future until the executor destroys its wrapper, even
+        // if polling unwinds. The adapter guards polling and destruction separately.
+        let run = MapOutput {
+            work: Abortable::new(work, registration),
+            map: |result| match result {
+                Ok(Ok(value)) => TaskOutcome::Completed(value),
+                Ok(Err(Cancelled)) | Err(_) => TaskOutcome::Cancelled,
             },
-            // Keep the submitted future alive until the executor destroys its wrapper.
-            // Dropping an owned await temporary while poll is unwinding can abort the process.
-            MapOutput {
-                work,
-                map: |result| match result {
-                    Ok(value) => TaskOutcome::Completed(value),
-                    Err(Cancelled) => TaskOutcome::Cancelled,
-                },
-            },
-        );
+        };
         Ok((control, run))
     }
 }
@@ -160,7 +155,7 @@ pub trait TaskHandle<T>: Future<Output = TaskOutcome<T>> + Unpin {
     /// Wakes the task and forces pending work to stop at a poll boundary.
     /// A result already produced by the executor wins over a later abort.
     fn abort(&self) {
-        self.control().abort.request_cancel();
+        self.control().abort.abort();
     }
 
     /// Waits for the terminal outcome and the destruction of the task future.

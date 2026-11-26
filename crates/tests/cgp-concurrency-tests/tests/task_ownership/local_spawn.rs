@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
-use async_channel::bounded;
-use cgp_concurrency::prelude::{CanSpawnLocalTask, TaskOutcome};
+use async_channel::{TryRecvError, bounded};
+use cgp_concurrency::prelude::{CanSpawnLocalTask, TaskHandle, TaskOutcome};
 use futures_lite::future;
 
 use crate::app::App;
@@ -37,6 +37,15 @@ async fn reclaims_pending_task(runtime: &impl CanSpawnLocalTask) {
     release.closed().await;
 }
 
+async fn abort_before_first_poll(runtime: &impl CanSpawnLocalTask) {
+    let (entered, observed) = bounded(1);
+    let owner = runtime.spawn_local_task(async move { entered.try_send(()).unwrap() });
+    // The local executor cannot poll the child before we yield.
+    owner.abort();
+    assert_eq!(owner.await, TaskOutcome::Cancelled);
+    assert_eq!(observed.try_recv(), Err(TryRecvError::Closed));
+}
+
 #[cfg(feature = "tokio")]
 #[test]
 fn tokio_local_spawn() {
@@ -50,6 +59,7 @@ fn tokio_local_spawn() {
     local.block_on(&runtime, async {
         recovers_rc_after_suspension(&app).await;
         reclaims_pending_task(&app).await;
+        abort_before_first_poll(&app).await;
     });
 }
 
@@ -63,5 +73,6 @@ fn smol_local_spawn() {
     smol::block_on(local.run(async {
         recovers_rc_after_suspension(&app).await;
         reclaims_pending_task(&app).await;
+        abort_before_first_poll(&app).await;
     }));
 }

@@ -96,8 +96,9 @@ cargo nextest run --locked -p cgp-concurrency-tests --all-features --test fork_h
 The local-spawn test holds an `Rc` across an await on Tokio's `LocalSet` and Smol's `LocalExecutor`.
 It calls the public spawn component through a test application's compile-time checked CGP wiring.
 It observes a pending handle, releases the task, then checks that the returned `Rc` points to
-the original allocation. A second case drops a pending owner and waits for the task's channel
-receiver to be destroyed. [Local-spawn acceptance tests](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs)
+the original allocation. Dropping a pending owner must destroy its channel receiver.
+Aborting before the first poll must drop the captured sender and return `Cancelled`
+without entering the task body. [Local-spawn acceptance tests](crates/tests/cgp-concurrency-tests/tests/task_ownership/local_spawn.rs)
 
 The multithreaded cases submit work through `CanSpawnTask` on a Tokio runtime handle and a Smol
 executor with two workers. The test application wires each spawn component independently and
@@ -184,6 +185,55 @@ counts allocations and peak live bytes above the executor's starting level per c
 Its final column reports excess live bytes for the **whole batch** immediately after
 reclamation, while the executor can still retain queue storage. Use the first run for
 timing comparisons because the heap counters add work to every allocation.
+
+#### Fork handlers baseline
+
+The optimization commit and its parent contain identical benchmark sources and fixtures.
+From the repository root, run the command block below on an idle machine. It exports both
+revisions to temporary directories, uses each revision's pinned toolchain and lockfile,
+and writes the commit IDs and raw CSV files to the printed results directory.
+
+```sh
+(
+set -eu
+after=$(git log -1 --format=%H --grep='^Reduce per-task overhead for large handler batches$')
+test -n "$after"
+before=$(git rev-parse "$after^")
+results=$(mktemp -d)
+echo "Results in $results"
+export CARGO_TARGET_DIR="$PWD/target"
+for side in before after; do
+    case "$side" in before) revision=$before ;; after) revision=$after ;; esac
+    mkdir "$results/$side"
+    git archive "$revision" | tar -x -C "$results/$side"
+    echo "$revision" > "$results/$side.commit"
+done
+for run in before-1 after-1 after-2 before-2; do
+    side=${run%-*}
+    (cd "$results/$side" && cargo bench --locked -p cgp-concurrency-tests --features tokio,smol --bench task_batches) > "$results/$run.cpu.csv"
+done
+for side in before after; do
+    (cd "$results/$side" && cargo bench --locked -p cgp-concurrency-tests --all-features --bench task_batches) > "$results/$side.heap.csv"
+done
+)
+```
+
+The table uses 10,000-child rows with `api=group`. For each executor and finish mode,
+sum the three CPU columns in each row and take the median across the ten samples for each
+revision. Join peak is the median of the five `peak_bytes_per_child` values from the heap run.
+
+The arm64 macOS run with Rust 1.100.0 produced these before → after medians.
+
+| Executor | Join (ns/child) | Cancel and drain (ns/child) | Abort on drop (ns/child) | Join peak (bytes/child) |
+| --- | ---: | ---: | ---: | ---: |
+| Tokio local | 348 → 292 | 365 → 310 | 300 → 248 | 1005 → 821 |
+| Tokio worker | 974 → 1207 | 894 → 1134 | 883 → 1158 | 992 → 808 |
+| Smol local | 414 → 337 | 432 → 352 | 371 → 301 | 859 → 691 |
+| Smol worker | 670 → 605 | 603 → 577 | 469 → 500 | 860 → 692 |
+
+The optimization saved about five allocations per child in every measured configuration.
+Local CPU fell on all three paths. Tokio workers used more CPU on all three, and Smol
+workers used more CPU on abort. The table records those tradeoffs for future comparisons.
 
 ## CI checks
 

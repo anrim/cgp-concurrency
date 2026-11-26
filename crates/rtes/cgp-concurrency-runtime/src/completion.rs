@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::future::Future;
@@ -6,6 +5,8 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::OnceLock;
+
+use pin_project_lite::pin_project;
 
 use crate::{TaskOutcome, discard, panic_message};
 
@@ -22,7 +23,7 @@ impl TaskCompletion {
     {
         let cleanup_panic = Arc::default();
         let work = Work {
-            future: Some(Box::pin(future)),
+            future: Some(future),
             cleanup_panic: Arc::clone(&cleanup_panic),
         };
         (Self { cleanup_panic }, work)
@@ -54,9 +55,22 @@ impl<T> Drop for UnclaimedOutput<T> {
     }
 }
 
-struct Work<F> {
-    future: Option<Pin<Box<F>>>,
-    cleanup_panic: Arc<OnceLock<Option<String>>>,
+pin_project! {
+    struct Work<F> {
+        #[pin]
+        future: Option<F>,
+        cleanup_panic: Arc<OnceLock<Option<String>>>,
+    }
+
+    impl<F> PinnedDrop for Work<F> {
+        fn drop(this: Pin<&mut Self>) {
+            let mut this = this.project();
+            // Drop in place before the native join publishes termination, even at shutdown.
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(|| this.future.set(None))) {
+                let _ = this.cleanup_panic.set(panic_message(payload));
+            }
+        }
+    }
 }
 
 impl<F, T> Future for Work<F>
@@ -65,21 +79,16 @@ where
 {
     type Output = UnclaimedOutput<T>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let future = self.future.as_mut().expect("work is present until drop");
-        let outcome = match catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(cx))) {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let future = self
+            .project()
+            .future
+            .as_pin_mut()
+            .expect("work is present until drop");
+        let outcome = match catch_unwind(AssertUnwindSafe(|| future.poll(cx))) {
             Ok(poll) => poll,
             Err(payload) => Poll::Ready(TaskOutcome::from_panic(payload)),
         };
         outcome.map(|value| UnclaimedOutput(Some(value)))
-    }
-}
-
-impl<F> Drop for Work<F> {
-    fn drop(&mut self) {
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(self.future.take()))) {
-            // The native join becomes ready after destruction, including at shutdown.
-            let _ = self.cleanup_panic.set(panic_message(payload));
-        }
     }
 }

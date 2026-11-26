@@ -19,6 +19,9 @@ All notable changes to this project are documented here.
   `tasks.cancel().await` signals the group and collects every child's outcome after cleanup. [Cancel and drain a group](crates/main/cgp-concurrency/README.md#cancel-and-drain-a-group)
 - `parent.try_spawn(&token, code, child, inputs).await` returns an owned handler group on success.
   A refusal stops submission and aborts and drains every accepted child before returning the error. [Fallible submission](crates/main/cgp-concurrency/README.md#fallible-submission)
+- Pending tasks use a single-waiter abort signal and store the task future and cancellation
+  listener inline. The 1,000- and 10,000-child benchmarks measured about five fewer
+  allocations per child. [CPU and heap measurements](TESTING.md#large-batches)
 
 ## v0.2.0
 

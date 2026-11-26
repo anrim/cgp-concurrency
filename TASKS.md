@@ -31,7 +31,7 @@
 - [x] Document the public API in the [crate guides](README.md#workspace) and provide a [runnable fork/join example](crates/main/cgp-concurrency/examples/fork_handlers.rs).
 - [x] [Submit handlers with `parent.try_spawn(...)`](crates/main/cgp-concurrency/README.md#fallible-submission) and abort and drain accepted children on refusal.
 - [x] [Declare `SendHandler` forwarding](crates/main/cgp-concurrency/src/fork.rs) in one line for custom handlers and [use `ReturnInput` directly on workers](crates/main/cgp-concurrency/examples/fork_handlers.rs).
-- [ ] Measure and reduce CPU and memory per task for 1,000 and 10,000 children across spawn, join, cancel-and-drain, and abort-on-drop.
+- [x] [Measure and reduce CPU and memory per task](TESTING.md#large-batches) for 1,000 and 10,000 children across spawn, join, cancel-and-drain, and abort-on-drop.
 
 ## v0.4.0 — Map collections
 
