@@ -17,6 +17,19 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 ///
 /// Dropping the map drops the iterator, pending futures, and retained results. A handler
 /// panic unwinds through the caller when unwinding is enabled.
+///
+/// Building a map with a zero limit fails at compile time.
+///
+/// ```compile_fail,E0080
+/// use core::marker::PhantomData;
+/// use cgp_core::error::ErrorOnly;
+/// use cgp_concurrency::BoundedParallel;
+/// use cgp_handler::{AsyncComputer, ReturnInput};
+///
+/// let app = ErrorOnly::<()>::default();
+/// let map = BoundedParallel::<ReturnInput, 0>::compute_async(&app, PhantomData::<()>, [42]);
+/// futures_lite::future::block_on(map);
+/// ```
 pub struct BoundedParallel<Branch, const LIMIT: usize>(PhantomData<Branch>);
 
 #[cgp_impl(BoundedParallel<Branch, LIMIT>)]

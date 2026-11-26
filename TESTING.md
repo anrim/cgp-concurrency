@@ -127,16 +127,28 @@ Separate shutdown cases poll owners while unrelated work is queued on an idle ex
 drive the tasks and destroy the executor to verify `RuntimeFailure`. The nextest timeout guards
 against a lost wake. [Shared scenarios](crates/tests/cgp-concurrency-tests/tests/task_ownership/scenarios.rs) · [Timeout configuration](.config/nextest.toml)
 
-## How we will test parallel handlers
+## Bounded map
 
-These cases are planned for the corresponding handler releases. Each test controls the order
-of events explicitly so it also works when nextest runs a single test at a time. [Release tasks](TASKS.md)
+The test fixture checks the concurrency limit every time a handler starts. The admission test
+holds two handlers at gates and checks that the iterator has yielded exactly two inputs.
+Closing the second gate wakes the map. Before releasing the first handler, the test checks that
+the third handler has returned and dropped its inbox. It checks each gate's wake before polling
+again and verifies the final result order.
+After the last gate opens, any poll that returns pending must also wake the map for another poll.
 
-| Operation | How the test drives it | What must hold |
-| --- | --- | --- |
-| Bounded map (v0.4) | Set the limit to two and hold both active items at gates. Check the third has not started, then release the second and wait for the third to start while the first is still pending. Count active handlers and record the peak. | The peak is exactly two. Results, including item errors, follow input order. Empty input starts no handlers and a zero limit is rejected before any handler starts. |
+With a limit of one, the serial test checks that the map pulls only the first input and starts
+its handler. Closing that inbox returns an error and admits the borrowed label. The test checks
+both results in input order.
+Empty input starts no handlers. The `BoundedParallel` doctest checks that a zero limit fails
+at compile time.
 
-For cross-thread cases, use atomics for counts and channels or barriers for handoffs.
+The drop test keeps two handlers pending after the first result arrives. Dropping the map
+releases that result and all three remaining inboxes, including the one the iterator never yielded.
+
+```sh
+cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --test map_collections
+cargo test --locked -p cgp-concurrency --no-default-features --doc 'map::BoundedParallel'
+```
 
 ## Benchmark spawn and join
 
@@ -238,5 +250,5 @@ workers used more CPU on abort. The table records those tradeoffs for future com
 ## CI checks
 
 CI runs the workspace suite with both providers, tests each provider separately, and runs
-the typed join with both runtime features disabled. The documentation job runs the doctests.
+the typed join and bounded map with both runtime features disabled. The documentation job runs the doctests.
 [Full verification commands](CONTRIBUTING.md#verification) · [CI workflow](.github/workflows/tests.yml)

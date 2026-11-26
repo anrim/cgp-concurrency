@@ -35,8 +35,25 @@
 
 ## v0.4.0 — Map collections
 
-- [x] Adapt CGP’s [`BoundedParallel`](crates/main/cgp-concurrency/src/map.rs) from `feature/concurrent-handlers` at `afa7224a` (`crates/extra/cgp-handler-parallel/src/bounded.rs`). Reuse its `FuturesUnordered` refill loop and indexed result slots to map finite inputs with a positive concurrency limit and return results in input order.
-- [ ] [Test bounded admission](TESTING.md#how-we-will-test-parallel-handlers) with empty input, a zero limit, and two gated handlers completing out of order.
+- [x] Map a finite iterable in the caller's task with [`BoundedParallel`](crates/main/cgp-concurrency/src/map.rs).
+  Support borrowed inputs and non-`Send` futures. A positive compile-time limit bounds active handlers.
+  Continue after an item error and retain one typed result per input until the map returns them in input order.
+  The refill loop and indexed result slots come from CGP's `feature/concurrent-handlers` at `afa7224a`
+  (`crates/extra/cgp-handler-parallel/src/bounded.rs`).
+- [x] [Test bounded admission and input ordering](crates/tests/cgp-concurrency-tests/tests/map_collections.rs).
+  With a limit of two, verify that the map pulls and starts only the first two items while both are pending.
+  Let the second handler return an error, observe the third finish while the first is still pending,
+  and check that peak concurrency is two and the error is in the second result slot.
+  Verify empty input starts no handlers and a zero limit fails at compile time.
+  Run the map tests in CI with both runtime features disabled.
+- [ ] Test panic cleanup and collection boundaries through the facade. With unwinding enabled, let a
+  handler panic while a sibling is pending and an earlier result is retained. Verify the caller observes
+  the panic and dropping the map releases the pending future, retained result, and unread inputs.
+  Check that dropping an unpolled map never calls the iterator's `next()` or starts a handler.
+  For a singleton input with a limit greater than one, expect exactly one result.
+- [ ] Decide whether the [task runner](README.md#run-a-batch-of-jobs) needs a runtime limit from `--jobs N`.
+  Record whether the compile-time limit meets that use case. If runtime configuration is required,
+  scope a separate API task that accepts a positive limit chosen at startup.
 
 ## v0.5.0 — Run blocking work
 

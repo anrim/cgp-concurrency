@@ -1,22 +1,12 @@
+#[path = "wake_channel.rs"]
+mod wake_channel;
+
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Wake, Waker};
+use std::task::Context;
 
-use async_channel::{Receiver, Sender, bounded};
-
-struct JoinWaker(Sender<()>);
-
-impl Wake for JoinWaker {
-    fn wake(self: Arc<Self>) {
-        let _ = self.0.try_send(());
-    }
-}
-
-pub(crate) fn wake_channel() -> (Waker, Receiver<()>) {
-    let (signal, wake) = bounded(1);
-    (Waker::from(Arc::new(JoinWaker(signal))), wake)
-}
+use async_channel::Receiver;
+pub(crate) use wake_channel::wake_channel;
 
 pub(crate) fn join_notification(join: &mut (impl Future + Unpin)) -> Receiver<()> {
     let (waker, published) = wake_channel();
