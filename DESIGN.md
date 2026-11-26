@@ -85,7 +85,9 @@ Dropping the join discards retained results and drops pending branch futures.
 `HandlerTaskSpawnerComponent` to either `SpawnLocalTasks<Jobs>` or `SpawnWorkerTasks<Jobs>`.
 Both take the same product of handler providers and use the parent's selected runtime. Each
 child owns an input and a clone of the child context. Worker handlers recover the future's
-`Send` bound through `SendHandler`. Local handlers can retain non-`Send` state.
+`Send` bound through `SendHandler`. The `impl_send_handler!` declaration forwards the existing
+handler future directly. A worker can own a `Send` child context that is not `Sync` when the
+returned future does not retain a shared reference to it. Local handlers can retain non-`Send` state.
 
 `spawn` submits every child synchronously through the infallible spawn operations,
 releases the original child context, and returns a `HandlerTasks` group. The executor can run

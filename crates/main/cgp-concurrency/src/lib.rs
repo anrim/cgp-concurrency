@@ -19,6 +19,12 @@ pub use fork::{
 };
 pub use join::JoinHandlers;
 
+#[doc(hidden)]
+pub mod __private {
+    pub use cgp::prelude::HasErrorType;
+    pub use cgp_handler::Handler;
+}
+
 pub mod prelude {
     pub use crate::runtime::{
         CanSpawnLocalTask, CanSpawnTask, CancellationToken, Cancelled, HasRuntime, HasRuntimeType,
@@ -30,5 +36,6 @@ pub mod prelude {
         CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks, CanTrySpawnHandlerTasks,
         HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks, JoinHandlers, SendHandler,
         SpawnLocalTasks, SpawnWorkerTasks, TryHandlerTaskSpawner, TryHandlerTaskSpawnerComponent,
+        impl_send_handler,
     };
 }

@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+- `impl_send_handler!` forwards a CGP handler to `SendHandler` in one declaration. Rust
+  checks that the handler future can move between worker threads. The facade implements
+  `SendHandler` for CGP's `ReturnInput`. Remove any overlapping forwarding declaration
+  for that provider when upgrading.
 - **Fork handlers.** `spawn` submits one owned task per handler before returning. The provider
   selects local or worker execution. Both `tasks.join().await` and `tasks.await` yield one
   typed outcome per handler in declaration order. If a child panics with unwinding enabled,

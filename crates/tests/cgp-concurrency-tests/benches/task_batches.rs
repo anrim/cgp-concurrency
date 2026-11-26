@@ -60,15 +60,7 @@ impl Handler<(), Input> for Child {
     }
 }
 
-impl SendHandler<Child, (), Input> for WaitForGate {
-    fn handle_send(
-        child: &Child,
-        code: PhantomData<()>,
-        input: Input,
-    ) -> impl Future<Output = ResultValue> + Send {
-        Self::handle(child, code, input)
-    }
-}
+impl_send_handler!((Child, (), Input) for WaitForGate);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Finish {

@@ -5,22 +5,12 @@ use core::convert::Infallible;
 use cgp::component::UseFields;
 use cgp::prelude::*;
 use cgp_concurrency::prelude::*;
-use cgp_handler::{Handler, ReturnInput};
+use cgp_handler::ReturnInput;
 
 #[derive(Clone)]
 struct Child;
 impl HasErrorType for Child {
     type Error = Infallible;
-}
-
-impl<T: Send> SendHandler<Child, (), T> for ReturnInput {
-    fn handle_send(
-        child: &Child,
-        code: PhantomData<()>,
-        input: T,
-    ) -> impl Future<Output = Result<T, Infallible>> + Send {
-        Self::handle(child, code, input)
-    }
 }
 
 type Workers = SpawnWorkerTasks<Product![ReturnInput, ReturnInput]>;

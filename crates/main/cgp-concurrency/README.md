@@ -42,6 +42,43 @@ input and a clone of the child context. Both `tasks.join().await` and `tasks.awa
 one `TaskOutcome<Result<Output, Error>>` per handler in that order. Dropping the group or
 a pending join requests abort for unfinished children.
 
+#### Worker handlers
+
+`SpawnLocalTasks` accepts a plain `Handler`. `SpawnWorkerTasks` requires `SendHandler`
+because its executor can move a suspended future to another thread. If your custom
+handler only implements `Handler`, use `impl_send_handler!` to forward its existing
+method. Rust checks that the returned future is `Send`. For example, holding an `Rc`
+across an `.await` would fail that check.
+
+The facade already implements `SendHandler` for `ReturnInput`. Its worker future owns
+only the input and returns it unchanged. Of the two handlers below, only `Double`
+needs a forwarding declaration.
+
+```rust
+extern crate cgp_core as cgp;
+use cgp::prelude::*;
+use cgp_concurrency::{SendHandler, impl_send_handler};
+use cgp_handler::{Handler, HandlerComponent, ReturnInput};
+use futures_lite::future::block_on;
+
+struct Child;
+impl HasErrorType for Child { type Error = (); }
+
+#[cgp_impl(new Double)]
+impl Handler<(), u32> for Child {
+    type Output = u32;
+    async fn handle(&self, _: PhantomData<()>, value: u32) -> Result<u32, ()> {
+        Ok(value * 2)
+    }
+}
+
+impl_send_handler!((Child, (), u32) for Double);
+
+let code = PhantomData::<()>;
+assert_eq!(block_on(ReturnInput::handle_send(&Child, code, 3_u32)), Ok(3));
+assert_eq!(block_on(Double::handle_send(&Child, code, 3)), Ok(6));
+```
+
 ### Fallible submission
 
 ```rust
@@ -219,7 +256,7 @@ The `runtime` module re-exports the full `cgp-concurrency-runtime` API.
 
 With a `CanSpawnLocalTask` runtime, select `SpawnLocalTasks<Jobs>` for local handlers,
 including those holding an `Rc` across an await. With a `CanSpawnTask` runtime, select
-`SpawnWorkerTasks<Jobs>` for handlers implementing `SendHandler::handle_send`.
+`SpawnWorkerTasks<Jobs>` for handlers implementing `SendHandler`. [Worker handlers](#worker-handlers)
 Both spawn providers require `'static` child contexts, inputs, outputs, and errors. Worker
 tasks also require these types and the handler future to be `Send`.
 To expose both submission methods, wire `[HandlerTaskSpawnerComponent, TryHandlerTaskSpawnerComponent]`

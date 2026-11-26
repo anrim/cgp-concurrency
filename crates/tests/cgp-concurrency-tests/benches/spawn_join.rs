@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use cgp::prelude::*;
 use cgp_concurrency::prelude::*;
-use cgp_handler::{Handler, ReturnInput};
+use cgp_handler::ReturnInput;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use parent::Parent;
 
@@ -21,16 +21,6 @@ struct Child;
 
 impl HasErrorType for Child {
     type Error = Infallible;
-}
-
-impl SendHandler<Child, (), u64> for ReturnInput {
-    fn handle_send(
-        child: &Child,
-        code: PhantomData<()>,
-        input: u64,
-    ) -> impl Future<Output = Result<u64, Infallible>> + Send {
-        Self::handle(child, code, input)
-    }
 }
 
 async fn time_groups<F, O>(iterations: u64, spawn_and_join: impl Fn() -> F, expected: O) -> Duration

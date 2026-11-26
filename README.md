@@ -39,6 +39,17 @@ cargo run --locked -p cgp-concurrency --features smol --example fork_handlers
 | Run handlers that borrow caller data | `JoinHandlers` polls each branch in the caller’s task. [Join typed handlers](crates/main/cgp-concurrency/README.md#join-typed-handlers) |
 | Submit a single future | `spawn_local_task` accepts local work. `spawn_task` accepts `Send` work. [Spawn owned tasks](crates/main/cgp-concurrency/README.md#spawn-owned-tasks) |
 
+When a custom handler such as `Double` implements only `Handler`, use `impl_send_handler!`
+to run it on workers. Rust checks that its future is `Send`. The facade already implements
+`SendHandler` for CGP’s `ReturnInput`, so it works directly in the same group.
+
+```rust
+impl_send_handler!((Child, (), u32) for Double);
+type Workers = SpawnWorkerTasks<Product![ReturnInput, Double]>;
+```
+
+Local handlers need only `Handler`. [Worker handler example](crates/main/cgp-concurrency/README.md#worker-handlers)
+
 ## Workspace
 
 | Crate | Provides |

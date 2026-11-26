@@ -236,15 +236,7 @@ impl<T> Handler<ReadPair, (Gate, T)> for Child<PanicOnDrop> {
     }
 }
 
-impl<T: Send> SendHandler<Child<PanicOnDrop>, ReadPair, (Gate, T)> for ReturnAfterGate {
-    fn handle_send(
-        child: &Child<PanicOnDrop>,
-        code: PhantomData<ReadPair>,
-        input: (Gate, T),
-    ) -> impl Future<Output = Result<T, Rejected>> + Send {
-        Self::handle(child, code, input)
-    }
-}
+impl_send_handler!([T: Send] (Child<PanicOnDrop>, ReadPair, (Gate, T)) for ReturnAfterGate);
 
 type Jobs = Product![
     ReturnAfterGate,
@@ -368,16 +360,6 @@ impl Drop for Capture {
         if !unwinding {
             panic!("rejected capture");
         }
-    }
-}
-
-impl SendHandler<Child<Capture>, ReadPair, Capture> for cgp_handler::ReturnInput {
-    fn handle_send(
-        child: &Child<Capture>,
-        code: PhantomData<ReadPair>,
-        input: Capture,
-    ) -> impl Future<Output = Result<Capture, Rejected>> + Send {
-        Self::handle(child, code, input)
     }
 }
 

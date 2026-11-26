@@ -111,25 +111,9 @@ impl Handler<ReadPair, Record> {
     }
 }
 
-impl<T: Clone + Send> SendHandler<Child<T>, ReadPair, Gate> for ReadValue {
-    fn handle_send(
-        child: &Child<T>,
-        code: PhantomData<ReadPair>,
-        gate: Gate,
-    ) -> impl Future<Output = Result<T, Rejected>> + Send {
-        Self::handle(child, code, gate)
-    }
-}
+impl_send_handler!([T] (Child<T>, ReadPair, Gate) for ReadValue where T: Clone + Send);
 
-impl<T> SendHandler<Child<T>, ReadPair, Record> for RejectRecord {
-    fn handle_send(
-        child: &Child<T>,
-        code: PhantomData<ReadPair>,
-        record: Record,
-    ) -> impl Future<Output = Result<bool, Rejected>> + Send {
-        Self::handle(child, code, record)
-    }
-}
+impl_send_handler!([T] (Child<T>, ReadPair, Record) for RejectRecord);
 
 type Jobs = Product![ReadValue, RejectRecord];
 type Local = SpawnLocalTasks<Jobs>;
@@ -351,6 +335,21 @@ async fn worker(runtime: impl CanSpawnTask) {
     panic::check::<_, SpawnWorkerTasks<panic::Jobs>>(&parent).await;
     type Pending = SpawnWorkerTasks<Product![RejectRecord, RejectRecord]>;
     drop_pending::<_, Pending>(&parent).await;
+
+    // ReturnInput needs neither a Sync child context nor a Send code tag.
+    type One = SpawnWorkerTasks<Product![ReturnInput]>;
+    let one = One::spawn(
+        &parent,
+        PhantomData::<Rc<()>>,
+        Child {
+            value: Cell::new(0),
+        },
+        product![Cell::new(7)],
+    );
+    assert_eq!(
+        one.await,
+        product![TaskOutcome::Completed(Ok(Cell::new(7)))]
+    );
 
     // Move both groups out of the parent. The workers ignore cooperative requests.
     let (start, _started) = bounded(4);

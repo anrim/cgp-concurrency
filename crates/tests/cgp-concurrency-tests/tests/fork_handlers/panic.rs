@@ -73,15 +73,7 @@ impl Handler<ReadPair, Failure> for Child<ContextDrop> {
     }
 }
 
-impl SendHandler<Child<ContextDrop>, ReadPair, Failure> for FailOnDrop {
-    fn handle_send(
-        child: &Child<ContextDrop>,
-        code: PhantomData<ReadPair>,
-        input: Failure,
-    ) -> impl Future<Output = Result<(), Rejected>> + Send {
-        Self::handle(child, code, input)
-    }
-}
+impl_send_handler!((Child<ContextDrop>, ReadPair, Failure) for FailOnDrop);
 
 pub(super) type Jobs = Product![FailOnDrop, FailOnDrop];
 type Inputs = Product![Failure, Failure];

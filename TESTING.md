@@ -57,6 +57,11 @@ The panic tests exercise a handler whose future panics during both polling and d
 A context clone also panics on drop. The group reports the first panic, checks that the destructors
 ran outside an active unwind, and still collects the sibling's result.
 
+The `impl_send_handler!` doctests exercise the worker's `Send` bound with a `u32` input
+and output. The handler holds an `Arc` across an await in the passing case and an `Rc`
+in the compile-fail case. The fork tests also run a worker handler with a `Cell` in its
+child context and a local handler with an `Rc`.
+
 The [admission tests](crates/tests/cgp-concurrency-tests/tests/fork_handlers/admission.rs) check
 prior cancellation and join a successful group after dropping its parent. They check that
 empty and nonempty groups remain joinable when the original child context panics on drop.

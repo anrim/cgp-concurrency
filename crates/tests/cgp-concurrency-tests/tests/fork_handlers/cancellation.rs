@@ -46,15 +46,7 @@ impl<T> Handler<ReadPair, Cleanup<T>> {
     }
 }
 
-impl<T: Send> SendHandler<Child, ReadPair, Cleanup<T>> for FinishOnCancel {
-    fn handle_send(
-        child: &Child,
-        code: PhantomData<ReadPair>,
-        input: Cleanup<T>,
-    ) -> impl Future<Output = Result<T, Rejected>> + Send {
-        Self::handle(child, code, input)
-    }
-}
+impl_send_handler!([T: Send] (Child, ReadPair, Cleanup<T>) for FinishOnCancel);
 
 type Jobs = Product![FinishOnCancel, FinishOnCancel];
 type Local = SpawnLocalTasks<Jobs>;

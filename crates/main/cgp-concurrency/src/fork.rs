@@ -4,7 +4,7 @@ use core::task::{Context, Poll};
 
 use cgp::base::types::{Cons, Nil};
 use cgp::prelude::*;
-use cgp_handler::Handler;
+use cgp_handler::{Computer, Handler, ReturnInput};
 use futures_util::future::{Either, FutureExt, join};
 use pin_project_lite::pin_project;
 
@@ -153,8 +153,9 @@ pub struct SpawnHandlers<Handlers, Spawner>(PhantomData<(Handlers, Spawner)>);
 
 /// Recovers a [`Handler`]'s `Send` future for a worker branch.
 ///
-/// Implement this trait for a concrete handler and child context by forwarding to
-/// [`Handler::handle`]. The compiler checks that the forwarded future is `Send`.
+/// [`ReturnInput`] supports workers directly. For a custom handler, use
+/// [`impl_send_handler!`](crate::impl_send_handler) to forward to [`Handler::handle`].
+/// The compiler checks that the forwarded future is `Send`.
 /// The handler's existing output and application error types carry through to the join.
 pub trait SendHandler<App: HasErrorType, Code, Input>: Handler<App, Code, Input> {
     /// Returns the handler future that the worker will drive.
@@ -163,6 +164,98 @@ pub trait SendHandler<App: HasErrorType, Code, Input>: Handler<App, Code, Input>
         code: PhantomData<Code>,
         input: Input,
     ) -> impl Future<Output = Result<Self::Output, App::Error>> + Send;
+}
+
+impl<App: HasErrorType, Code, Input: Send> SendHandler<App, Code, Input> for ReturnInput {
+    fn handle_send(
+        app: &App,
+        code: PhantomData<Code>,
+        input: Input,
+    ) -> impl Future<Output = Result<Input, App::Error>> + Send {
+        // Use the synchronous identity operation so the future holds only the output.
+        let output = Self::compute(app, code, input);
+        async move { Ok(output) }
+    }
+}
+
+/// Implements [`SendHandler`] by returning the provider's [`Handler::handle`] future directly.
+///
+/// Specify `(Child, Code, Input) for Provider`. Put impl parameters in brackets before
+/// the tuple for a generic declaration. A trailing `where` clause can supply bounds.
+///
+/// A worker handler can hold an `Arc` across an await and return the value it contains.
+///
+/// ```rust
+/// extern crate cgp_core as cgp;
+/// use cgp::prelude::*;
+/// use cgp_concurrency::{SendHandler, impl_send_handler};
+/// use cgp_handler::{Handler, HandlerComponent};
+/// use std::sync::Arc;
+///
+/// struct Child;
+/// impl HasErrorType for Child { type Error = (); }
+///
+/// #[cgp_impl(new ReadValue)]
+/// impl Handler<(), u32> for Child {
+///     type Output = u32;
+///     async fn handle(&self, _: PhantomData<()>, input: u32) -> Result<u32, ()> {
+///         let value = Arc::new(input);
+///         futures_lite::future::yield_now().await;
+///         Ok(*value)
+///     }
+/// }
+///
+/// impl_send_handler!((Child, (), u32) for ReadValue);
+/// assert_eq!(futures_lite::future::block_on(ReadValue::handle_send(&Child, PhantomData, 7)), Ok(7));
+/// ```
+///
+/// Even with a `u32` input and output, a handler holding an `Rc` across an await can
+/// only run locally. The compiler checks this at the forwarding declaration.
+///
+/// ```compile_fail
+/// extern crate cgp_core as cgp;
+/// use cgp::prelude::*;
+/// use cgp_concurrency::impl_send_handler;
+/// use cgp_handler::{Handler, HandlerComponent};
+/// use std::rc::Rc;
+///
+/// struct Child;
+/// impl HasErrorType for Child { type Error = (); }
+///
+/// #[cgp_impl(new ReadValue)]
+/// impl Handler<(), u32> for Child {
+///     type Output = u32;
+///     async fn handle(&self, _: PhantomData<()>, input: u32) -> Result<u32, ()> {
+///         let value = Rc::new(input);
+///         futures_lite::future::yield_now().await;
+///         Ok(*value)
+///     }
+/// }
+///
+/// impl_send_handler!((Child, (), u32) for ReadValue);
+/// ```
+#[macro_export]
+macro_rules! impl_send_handler {
+    (
+        $([$($param:tt)*])?
+        ($child:ty, $code:ty, $input:ty $(,)?) for $handler:ty
+        $(where $($bounds:tt)+)?
+    ) => {
+        impl $(<$($param)*>)? $crate::SendHandler<$child, $code, $input> for $handler
+        $(where $($bounds)+)?
+        {
+            fn handle_send(
+                child: &$child,
+                code: ::core::marker::PhantomData<$code>,
+                input: $input,
+            ) -> impl ::core::future::Future<Output = ::core::result::Result<
+                <Self as $crate::__private::Handler<$child, $code, $input>>::Output,
+                <$child as $crate::__private::HasErrorType>::Error,
+            >> + ::core::marker::Send {
+                <Self as $crate::__private::Handler<$child, $code, $input>>::handle(child, code, input)
+            }
+        }
+    };
 }
 
 #[cgp_impl(SpawnHandlers<Handlers, Spawner>)]
