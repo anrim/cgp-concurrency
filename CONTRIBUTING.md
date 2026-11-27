@@ -43,7 +43,7 @@ Do not copy the same contract into several documents. Link to its owner instead.
 
 Public behavior requires tests and documentation in the same change. Cover the relevant empty,
 singleton, many-item, maximum-capacity, failure, panic, cancellation, and shutdown cases. See
-[TESTING.md](TESTING.md) for the shared suite, test tools, and parallel-handler test plan.
+[TESTING.md](TESTING.md) for the shared suite, test tools, and handler acceptance tests.
 
 Exercise public CGP operations through the facade with checked application wiring. Choose inputs
 that expose the promised type and lifetime bounds, such as a caller-local borrow or an `Rc`
@@ -104,7 +104,7 @@ cargo check --locked -p cgp-concurrency --no-default-features --features smol
 cargo check --locked -p cgp-concurrency --all-features
 
 cargo nextest run --locked --workspace --all-features --no-fail-fast
-cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --test typed_join
+cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --test typed_join --test map_collections
 cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --features tokio
 cargo nextest run --locked -p cgp-concurrency-tests --no-default-features --features smol
 
@@ -112,7 +112,7 @@ cargo test --locked --workspace --all-features --doc
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps
 ```
 
-The [CI workflow](.github/workflows/tests.yml) exercises the typed join with both runtime features
+The [CI workflow](.github/workflows/tests.yml) exercises the typed join and bounded map with both runtime features
 disabled and runs the conformance suite with Tokio, Smol, and both together. A release may add
 a target-specific check, such as the bare-metal check required before making a cross-target
 `no_std` claim.
