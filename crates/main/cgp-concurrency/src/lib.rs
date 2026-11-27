@@ -2,10 +2,12 @@
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README.md")]
 
+extern crate alloc;
 extern crate cgp_core as cgp;
 
 mod fork;
 mod join;
+mod map;
 
 pub use cgp_concurrency_runtime as runtime;
 #[cfg(feature = "smol")]
@@ -18,6 +20,7 @@ pub use fork::{
     SpawnWorkerTasks, TryHandlerTaskSpawner, TryHandlerTaskSpawnerComponent,
 };
 pub use join::JoinHandlers;
+pub use map::BoundedParallel;
 
 #[doc(hidden)]
 pub mod __private {
@@ -33,9 +36,9 @@ pub mod prelude {
         TaskOutcome, TaskSpawner, TaskSpawnerComponent,
     };
     pub use crate::{
-        CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks, CanTrySpawnHandlerTasks,
-        HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks, JoinHandlers, SendHandler,
-        SpawnLocalTasks, SpawnWorkerTasks, TryHandlerTaskSpawner, TryHandlerTaskSpawnerComponent,
-        impl_send_handler,
+        BoundedParallel, CanSpawnCancellableHandlerTasks, CanSpawnHandlerTasks,
+        CanTrySpawnHandlerTasks, HandlerTaskSpawner, HandlerTaskSpawnerComponent, HandlerTasks,
+        JoinHandlers, SendHandler, SpawnLocalTasks, SpawnWorkerTasks, TryHandlerTaskSpawner,
+        TryHandlerTaskSpawnerComponent, impl_send_handler,
     };
 }

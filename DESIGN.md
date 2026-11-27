@@ -79,6 +79,14 @@ The caller's future drives all branches and retains one typed result per complet
 Awaiting the join returns every result in declaration order, including application errors.
 Dropping the join discards retained results and drops pending branch futures.
 
+### Map finite collections in the caller's task
+
+The facade's `BoundedParallel` drives one handler per item with a positive compile-time
+concurrency limit. Each completion admits another item, including when the handler returns
+an application error. The caller receives all results in iteration order. The limit covers
+in-flight futures. Retained results occupy one slot per admitted item until the map returns.
+Dropping the caller's future releases the iterator, pending handlers, and retained results.
+
 ### Fork handlers
 
 `CanSpawnHandlerTasks` separates task submission from joining. The parent wires

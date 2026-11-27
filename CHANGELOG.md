@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+- Map a handler over a finite collection with `BoundedParallel<Branch, LIMIT>`. It runs in the
+  caller's task and returns every item result in input order. [Map collections](crates/main/cgp-concurrency/README.md#map-collections)
 - `impl_send_handler!` forwards a CGP handler to `SendHandler` in one declaration. Rust
   checks that the handler future can move between worker threads. The facade implements
   `SendHandler` for CGP's `ReturnInput`. Remove any overlapping forwarding declaration

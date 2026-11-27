@@ -1,6 +1,6 @@
 # cgp-concurrency
 
-Fork owned handler tasks on Tokio or Smol, or join handlers that borrow data in the caller’s task.
+Fork owned handler tasks on Tokio or Smol. Join handlers or map one handler over a collection in the caller’s task.
 
 ## Installation
 
@@ -11,8 +11,8 @@ cargo add --path ../cgp-concurrency/crates/main/cgp-concurrency --features smol
 ```
 
 The optional `smol` and `tokio` features expose the corresponding adapter modules.
-The default feature set supports caller-driven joins. To run the handler examples in
-your own application, add their CGP and executor dependencies as well.
+The default feature set supports caller-driven joins and collection maps. To run these examples
+in your own application, add their CGP and executor dependencies as well.
 
 ```sh
 cargo add cgp-core@0.8 cgp-handler@0.8 futures-lite@2
@@ -154,6 +154,48 @@ branch futures and retained results. To feed the results into another handler, u
 `Promote<JoinHandlers<Jobs>>` in a `PipeHandlers` pipeline. The `JoinHandlers` type documentation
 includes a complete example with a fallible branch.
 
+### Map collections
+
+Wire `AsyncComputerComponent` to `BoundedParallel<Branch, LIMIT>` and pass a finite iterable
+to `compute_async`. Here `ParsePort` handles one string. The map drives up to two handlers
+at once and returns every result in input order, including parse errors.
+
+```rust
+extern crate cgp_core as cgp;
+use core::num::ParseIntError;
+use cgp::prelude::*;
+use cgp_concurrency::BoundedParallel;
+use cgp_handler::{AsyncComputerComponent, CanComputeAsync, Handler, HandlerComponent};
+
+struct App;
+impl HasErrorType for App { type Error = ParseIntError; }
+
+#[cgp_impl(new ParsePort)]
+#[use_type(HasErrorType.Error = ParseIntError)]
+impl<'a> Handler<(), &'a str> {
+    type Output = u16;
+
+    async fn handle(&self, _: PhantomData<()>, port: &'a str) -> Result<u16, Error> {
+        port.parse()
+    }
+}
+
+delegate_and_check_components! {
+    App {
+        #[check_params(((), [&'static str; 3]))]
+        AsyncComputerComponent: BoundedParallel<ParsePort, 2>,
+    }
+}
+
+futures_lite::future::block_on(async {
+    let ports = App.compute_async(PhantomData::<()>, ["80", "invalid", "443"]).await;
+    assert!(matches!(ports.as_slice(), [Ok(80), Err(_), Ok(443)]));
+});
+```
+
+Dropping a pending map releases its in-flight handler futures and completed results. If a
+handler launches a subprocess, the task runner owns the policy for terminating and reaping it.
+
 ### Spawn owned tasks
 
 The prelude re-exports `CanSpawnLocalTask` and `CanSpawnTask` for individual futures.
@@ -253,6 +295,7 @@ The `runtime` module re-exports the full `cgp-concurrency-runtime` API.
 | `CanTrySpawnHandlerTasks` | Wire `TryHandlerTaskSpawnerComponent` to a `TryHandlerTaskSpawner`. | `try_spawn(token, code, child, inputs).await` returns an owned group or the admission error after cleanup. |
 | `CanSpawnCancellableHandlerTasks` | Available on every `CanSpawnHandlerTasks` implementation. | `spawn_cancellable(code, make_child, inputs)` gives the child constructor a fresh token and returns a group with `cancel()`. |
 | `cgp_handler::CanComputeAsync` | Wire `AsyncComputerComponent` to `JoinHandlers<Jobs>`. | `compute_async(code, inputs).await` joins handlers inside the caller's task. |
+| `cgp_handler::CanComputeAsync` | Wire `AsyncComputerComponent` to `BoundedParallel<Branch, LIMIT>`. | `compute_async(code, inputs).await` returns the item results in input order. |
 
 With a `CanSpawnLocalTask` runtime, select `SpawnLocalTasks<Jobs>` for local handlers,
 including those holding an `Rc` across an await. With a `CanSpawnTask` runtime, select

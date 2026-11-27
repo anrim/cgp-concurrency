@@ -35,7 +35,7 @@
 
 ## v0.4.0 — Map collections
 
-- [ ] Adapt CGP’s `BoundedParallel` from `feature/concurrent-handlers` at `afa7224a` (`crates/extra/cgp-handler-parallel/src/bounded.rs`). Reuse its `FuturesUnordered` refill loop and indexed result slots to map finite inputs with a positive concurrency limit and return results in input order.
+- [x] Adapt CGP’s [`BoundedParallel`](crates/main/cgp-concurrency/src/map.rs) from `feature/concurrent-handlers` at `afa7224a` (`crates/extra/cgp-handler-parallel/src/bounded.rs`). Reuse its `FuturesUnordered` refill loop and indexed result slots to map finite inputs with a positive concurrency limit and return results in input order.
 - [ ] [Test bounded admission](TESTING.md#how-we-will-test-parallel-handlers) with empty input, a zero limit, and two gated handlers completing out of order.
 
 ## v0.5.0 — Run blocking work
